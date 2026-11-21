@@ -1,0 +1,22 @@
+{
+  "name": "emo",
+  "displayName": "Emo — Türk Hukuku Uzmanı",
+  "version": "0.1.0",
+  "description": "Türk hukukunda dört bakış açılı (analist, karşı taraf, hâkim, stratejist) dava analizi; karşı tarafın muhtemel hamlelerini öngörür, hukuka uygun emniyet tedbirleri ve taktik plan üretir. İş, ceza, aile, tapu ve miras hukuku.",
+  "author": {
+    "name": "Emirhan Akvaranlı"
+  },
+  "repository": "https://github.com/emirhanakvaranli252520-ux/Emo",
+  "license": "UNLICENSED",
+  "keywords": [
+    "türk hukuku",
+    "dava stratejisi",
+    "dilekçe",
+    "içtihat",
+    "iş hukuku",
+    "ceza hukuku",
+    "aile hukuku",
+    "tapu",
+    "miras"
+  ]
+}

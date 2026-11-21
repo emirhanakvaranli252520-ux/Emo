@@ -1,0 +1,14 @@
+{
+  "name": "emo-hukuk",
+  "owner": {
+    "name": "Emirhan Akvaranlı"
+  },
+  "description": "Emo Türk hukuku plugin'inin kurulum kataloğu",
+  "plugins": [
+    {
+      "name": "emo",
+      "source": "./",
+      "description": "Türk hukukunda dört bakış açılı dava analizi, karşı taraf öngörüsü ve strateji"
+    }
+  ]
+}

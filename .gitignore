@@ -1,0 +1,13 @@
+# Gerçek dava klasörleri GitHub'a gönderilmez; yalnızca şablon izlenir.
+# (Davaları da yedeklemek istersen aşağıdaki iki satırı sil.)
+davalar/*
+!davalar/_sablon/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# Sistem
+.DS_Store
+Thumbs.db

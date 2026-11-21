@@ -162,8 +162,23 @@ hukuk dilinin gereklilikleri.
 
 **Ajanlar (`agents/`):** `analist`, `karsi-taraf`, `hakim`, `stratejist`, `atif-dogrulayici`
 
+**Model dağılımı (ajan dosyalarındaki `model:` ve `effort:` alanları):**
+
+| Ajan | Model | Effort |
+|---|---|---|
+| analist | opus | high |
+| karsi-taraf | fable | high |
+| hakim | opus | high |
+| stratejist | fable | high |
+| atif-dogrulayici | sonnet | medium |
+| belge okuma / metin çıkarma | haiku | low |
+
+**Temel ilkeler ("anayasa"):** Claude Code, plugin kökündeki `CLAUDE.md` dosyasını yüklemez.
+Bu yüzden ana kurallar `skills/temel-ilkeler/` skill'ine konur ve her ajan bu skill'i
+frontmatter'daki `skills:` alanıyla yükler.
+
 **Ortak skill'ler (`skills/`):**
-`belge-okuma` (UDF/PDF/DOCX), `dava-dosyasi` (hafıza), `mevzuat-arastirma`,
+`temel-ilkeler` (anayasa), `belge-okuma` (UDF/PDF/DOCX), `dava-dosyasi` (hafıza), `mevzuat-arastirma`,
 `ictihat-arastirma`, `sure-hesaplama`, `dilekce-yazimi`, `harc-masraf-vekalet`
 
 **Alan skill'leri:** her alanın kendi `references/` klasöründe alt konu rehberi,
