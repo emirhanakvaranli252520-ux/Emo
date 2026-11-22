@@ -50,7 +50,7 @@ claude plugin validate .
 
 - [x] Aşama 1 — Tasarım belgesi
 - [x] Aşama 2 — Repo iskeleti ve plugin manifest'i
-- [ ] Aşama 3 — Temel ilkeler (anayasa) skill'i
+- [x] Aşama 3 — Temel ilkeler (anayasa) skill'i
 - [ ] Aşama 4 — MCP bağlantıları
 - [ ] Aşama 5 — Skill'ler
 - [ ] Aşama 6 — Ajanlar
