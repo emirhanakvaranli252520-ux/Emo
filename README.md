@@ -19,7 +19,7 @@ geliştirildi. 15 skill, `.claude/skills/` altından bu projede doğrudan `/trad
 python3 day-trader/trader-journal/journal.py snapshot   # planı ve Time Machine olasılıklarını sakla
 python3 day-trader/trader-journal/journal.py import     # dolumlar -> puanlanmış işlemler
 python3 day-trader/trader-journal/journal.py stats      # karne
-python3 -m unittest discover -s day-trader/tests        # 398 test, çevrimdışı
+python3 -m unittest discover -s day-trader/tests        # 399 test, çevrimdışı
 ```
 
 **Freqtrade'den uyarlanan fikirler** ([freqtrade/freqtrade](https://github.com/freqtrade/freqtrade), GPLv3: kod kopyalanmadı, yalnızca kavramlar sıfırdan yazıldı):
@@ -95,6 +95,14 @@ ile kendi bölgenizi (key level, order block, range kenarı) izletebilirsiniz.
 
 **Hacimli piyasa kalıbı:** H1 hacmi normalin en az 1.2 katıyken LTL beklenmez; ITL → STH ve bu bacakta bırakılan FVG
 bölge olur (ayıda ITH → STL). `--pattern both|classic|fast`, eşik `--fast-vol`. Sonuçlar kalıba göre ayrılır.
+
+**TradingView verisi:** Grafikte "Export chart data" ile alınan CSV (time, open, high, low, close, Volume) tüm komutlarda
+`--offline dosya.csv` ile okunur; günlük bias için ayrıca `--bias-offline gunluk.csv`.
+
+```bash
+python3 day-trader/trader-structure/structure.py confirm BTCUSDT --offline btc_15m.csv --bias-offline btc_1d.csv
+python3 day-trader/trader-structure/structure.py confirm NQ --offline nq_5m.csv --data-interval 5m --bias-offline nq_1d.csv
+```
 
 Varsayılan konfirmasyon **15m ITL/ITH**: FVG'ye dokunuştan sonra 15m'de oluşan ilk ITL (long) / ITH (short) kesinleşince
 giriş, stop ITL dibinde (CHoCH isteğe bağlı: `--mode choch`). H1 range kutusu içinde oluşan kurulumlar karşılaştırmaya

@@ -541,3 +541,17 @@ class FastPattern(unittest.TestCase):
         self.assertGreater(loose["by_pattern"]["fast"]["sequences"], both["by_pattern"]["fast"]["sequences"])
         for r in loose["sequences"]:
             self.assertTrue(r["structure"].startswith(("ITL", "ITH")))
+
+
+class TradingViewCsv(unittest.TestCase):
+    def test_unix_and_iso_times_and_extra_columns(self):
+        csv_unix = "﻿time,open,high,low,close,Volume,MA\n1792400400,1,2,0.5,1.5,10,NaN\n1792404000,1.5,2.5,1,2,12,NaN\n"
+        sym, gran, bars = st.parse_bars(csv_unix, "BTCUSDT")
+        self.assertEqual((gran, len(bars), bars[0]["t"], bars[1]["c"], bars[1]["v"]), ("1h", 2, 1792400400, 2.0, 12.0))
+        csv_iso = ("time,open,high,low,close\n2026-10-19T05:00:00-04:00,1,2,0.5,1.5\n"
+                   "2026-10-19T05:15:00-04:00,1.5,2.5,1,NaN\n2026-10-19T05:30:00-04:00,1.5,2.5,1,2\n")
+        sym, gran, bars = st.parse_bars(csv_iso, "NQ=F")
+        self.assertEqual(bars[0]["t"], 1792400400)           # 05:00 New York = 09:00 UTC
+        self.assertEqual(len(bars), 2)                       # the NaN row is skipped
+        with self.assertRaises(st.StructureError):
+            st.parse_bars("time,open,close\n1,2,3\n", "X")

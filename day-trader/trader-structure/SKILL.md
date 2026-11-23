@@ -162,7 +162,11 @@ follows the user's own zone instead (a key level, an order block, a range
 edge after a raid).
 
 Data: Yahoo keeps 5m bars for 60 days; on Binance `--days` (default 30)
-fetches them in pages of 1000.
+fetches them in pages of 1000. A **TradingView export** works too: on the
+chart, "Export chart data" gives a CSV (time, open, high, low, close,
+Volume; extra indicator columns are ignored, time as UNIX or ISO). Pass it
+with `--offline file.csv --data-interval 5m` (or 15m), and a daily export
+with `--bias-offline daily.csv`. Every command reads these CSVs.
 
 ## Range and AMD (power of three)
 

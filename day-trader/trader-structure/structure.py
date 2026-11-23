@@ -131,8 +131,57 @@ def read_text(path):
         return fh.read()
 
 
+def parse_tv_csv(text, sym):
+    """TradingView's "Export chart data" CSV: a header with time, open, high, low, close and maybe Volume
+    (other indicator columns are ignored). time is UNIX seconds or an ISO date-time (with its offset)."""
+    import csv
+    import io as _io
+    rows = list(csv.reader(_io.StringIO(text.lstrip("\ufeff"))))
+    if not rows:
+        raise StructureError("the CSV for %s is empty" % sym)
+    head = [h.strip().lower() for h in rows[0]]
+    need = ("time", "open", "high", "low", "close")
+    if not all(k in head for k in need):
+        raise StructureError("the CSV needs columns time, open, high, low, close (TradingView: Export chart data)")
+    ix = {k: head.index(k) for k in need}
+    vcol = next((head.index(k) for k in ("volume", "vol") if k in head), None)
+    bars = []
+    for r in rows[1:]:
+        if not r or not r[ix["time"]].strip():
+            continue
+        tv = r[ix["time"]].strip()
+        try:
+            t = int(float(tv))
+        except ValueError:
+            try:
+                dt = datetime.datetime.fromisoformat(tv.replace("Z", "+00:00"))
+            except ValueError:
+                raise StructureError("unreadable time %r in the CSV" % tv)
+            t = epoch((dt - dt.utcoffset()).replace(tzinfo=None) if dt.tzinfo else dt)
+        try:
+            o, h, l, c = (float(r[ix[k]]) for k in ("open", "high", "low", "close"))
+        except ValueError:
+            continue                                  # a row with a gap (NaN) in the export
+        v = 0.0
+        if vcol is not None and vcol < len(r):
+            try:
+                v = float(r[vcol])
+            except ValueError:
+                v = 0.0
+        bars.append({"t": t, "o": o, "h": h, "l": l, "c": c, "v": v})
+    bars.sort(key=lambda b: b["t"])
+    if len(bars) < 2:
+        raise StructureError("fewer than 2 bars in the CSV")
+    steps = sorted(bars[k + 1]["t"] - bars[k]["t"] for k in range(len(bars) - 1))
+    step = steps[len(steps) // 2]
+    gran = next((k for k, s in SECONDS.items() if s == step and k != "60m"), None)
+    return sym, gran, bars
+
+
 def parse_bars(text, sym):
-    """Yahoo chart JSON or Binance klines JSON -> (symbol, granularity or None, bars)."""
+    """Yahoo chart JSON, Binance klines JSON or a TradingView CSV export -> (symbol, granularity, bars)."""
+    if text.lstrip("\ufeff").lstrip().lower().startswith("time,") or text.lstrip("\ufeff").startswith('"time"'):
+        return parse_tv_csv(text, sym)
     try:
         data = json.loads(text)
     except ValueError:
@@ -1635,7 +1684,7 @@ def load(a):
     if a.source == "yahoo" or a.offline:
         if dsym and dsym != sym and not a.offline:
             raise StructureError("the data is for %s, not %s" % (dsym, sym))
-        if a.offline and dsym and dsym != sym:
+        if a.offline and dsym and dsym != sym and not a.offline.lower().endswith(".csv"):
             raise StructureError("the file holds %s, not %s" % (dsym, sym))
     resampled = False
     if a.resample:
