@@ -9,7 +9,7 @@
   "plugins": [
     {
       "name": "day-trader-skill",
-      "description": "Fourteen Claude skills for day trading: a chart scanner, a smart-money level mapper, an ITH / LTH market-structure reader, a news monitor, an entry timer, an exit planner, a time machine that replays 10,000 sessions, a risk manager, a budget manager, an order executor (paper by default, never without your yes), price alerts, an earnings analyst, a Pelosi tracker and a trade journal that scores every trade against its plan.",
+      "description": "Fifteen Claude skills for day trading: a chart scanner, a smart-money level mapper, an ITH / LTH market-structure reader, an Elliott wave counter, a news monitor, an entry timer, an exit planner, a time machine that replays 10,000 sessions, a risk manager, a budget manager, an order executor (paper by default, never without your yes), price alerts, an earnings analyst, a Pelosi tracker and a trade journal that scores every trade against its plan.",
       "source": "./",
       "category": "productivity",
       "homepage": "https://github.com/Jakeschincariol/day-trader-skill"

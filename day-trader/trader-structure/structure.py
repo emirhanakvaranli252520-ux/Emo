@@ -435,7 +435,7 @@ def bias(t):
 
 
 def analyze(sym, bars, interval, now_utc, window=24, recent=5, min_gap_pct=0.0, resampled=False,
-            range_window=24, skip_range=False):
+            range_window=24, skip_range=False, rr_band=(1.5, 3.5)):
     bars = closed_only(bars, interval, now_utc, resampled)
     if len(bars) < 20:
         raise StructureError("only %d closed bar(s) of %s by then: need at least 20" % (len(bars), sym))
@@ -445,6 +445,11 @@ def analyze(sym, bars, interval, now_utc, window=24, recent=5, min_gap_pct=0.0, 
     reg = regime(bars, range_window)
     boxes = amd_boxes(bars, reg, range_window)
     liq = liquidity_map(bars, t)
+    lo_rr, hi_rr = rr_band
+    for s in setups:
+        rr = s["plan"].get("reward_risk")
+        s["plan"]["rr_band"] = None if rr is None else ("in band" if lo_rr <= rr <= hi_rr else
+                                                       "under %.1f" % lo_rr if rr < lo_rr else "over %.1f" % hi_rr)
     for s in setups:
         k = s["_known"]
         s["regime"] = reg[k]["state"]
@@ -1040,7 +1045,8 @@ def render(doc):
             out.append("          known %s%s  status %s%s  |  entry %.2f stop %.2f target %s R:R %s" % (
                 s["known_at"][5:], " [range]" if s.get("in_range_box") else "", s["status"], (" " + s["status_at"][5:]) if s["status_at"] else "",
                 p["entry"], p["stop"], "n/a" if p["target"] is None else "%.2f" % p["target"],
-                "n/a" if p["reward_risk"] is None else "%.2f" % p["reward_risk"]))
+                "n/a" if p["reward_risk"] is None else "%.2f" % p["reward_risk"]
+                + ("" if p.get("rr_band") in (None, "in band") else " (%s)" % p["rr_band"])))
             if p.get("target1") is not None:
                 out.append("          T1 %.2f (%s, R:R %s)%s" % (
                     p["target1"], p["target1_from"], "n/a" if p["rr1"] is None else "%.2f" % p["rr1"],
@@ -1180,7 +1186,7 @@ def load(a):
 def cmd_scan(a):
     sym, bars, interval, now, resampled = load(a)
     doc = analyze(sym, bars, interval, now, a.window, min_gap_pct=a.min_gap, resampled=resampled,
-                  range_window=a.range_window, skip_range=a.skip_range)
+                  range_window=a.range_window, skip_range=a.skip_range, rr_band=(a.rr_min, a.rr_max))
     if a.write:
         write_json(a.write, doc)
     return json.dumps(doc, indent=2) if a.json else render(doc)
@@ -1228,6 +1234,8 @@ def build_parser():
                    help="bars after the ITL/ITH in which the FVG must appear (default 24)")
     p.add_argument("--min-gap", type=float, default=0.0, help="ignore FVGs smaller than this percent")
     p.add_argument("--skip-range", action="store_true", help="hide sequences that formed inside a range box")
+    p.add_argument("--rr-min", type=float, default=1.5, help="the low end of your reward:risk band (default 1.5)")
+    p.add_argument("--rr-max", type=float, default=3.5, help="the high end of your reward:risk band (default 3.5)")
     p.set_defaults(fn=cmd_scan)
 
     p = sub.add_parser("range", help="range / AMD: is the market ranging, was an edge raided, did AMD complete")

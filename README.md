@@ -4,7 +4,7 @@ Türk hukukuna özel yapay zekâ ajanı: dilekçe ve sözleşme taslağı hazır
 ## Day Trader skill paketi (`day-trader/`)
 
 [Jakeschincariol/day-trader-skill](https://github.com/Jakeschincariol/day-trader-skill) (MIT) paketi bu depoya eklendi ve
-geliştirildi. 14 skill, `.claude/skills/` altından bu projede doğrudan `/trader-*` komutu olarak çalışır.
+geliştirildi. 15 skill, `.claude/skills/` altından bu projede doğrudan `/trader-*` komutu olarak çalışır.
 
 **Eklenen: `/trader-journal` (İşlem Günlüğü).** Orijinal pakette işlem sonrası değerlendirme yoktu. Yeni skill:
 
@@ -19,7 +19,7 @@ geliştirildi. 14 skill, `.claude/skills/` altından bu projede doğrudan `/trad
 python3 day-trader/trader-journal/journal.py snapshot   # planı ve Time Machine olasılıklarını sakla
 python3 day-trader/trader-journal/journal.py import     # dolumlar -> puanlanmış işlemler
 python3 day-trader/trader-journal/journal.py stats      # karne
-python3 -m unittest discover -s day-trader/tests        # 370 test, çevrimdışı
+python3 -m unittest discover -s day-trader/tests        # 384 test, çevrimdışı
 ```
 
 **Freqtrade'den uyarlanan fikirler** ([freqtrade/freqtrade](https://github.com/freqtrade/freqtrade), GPLv3: kod kopyalanmadı, yalnızca kavramlar sıfırdan yazıldı):
@@ -70,6 +70,22 @@ python3 day-trader/trader-structure/structure.py levels NQ=F
 medyan alınma süresini ve fiyata en yakın alınmamış olanları gösterir. Dürüst test için **taban oranı** da verir:
 aynı uzaklıktaki herhangi bir seviye 24 mumda ne sıklıkla alınıyor? Her dizinin planına en yakın alınmamış STH/STL
 **ilk hedef (T1)** olarak eklenir; stopun hemen ötesinde alınmamış STL/STH varsa "stop likiditenin içinde" uyarısı çıkar.
+
+**R:R bandı 1:1.5 – 1:3.5:** `trader-structure` planlarında ve Elliott sayımlarında bandın dışındaki R:R işaretlenir
+(`--rr-min/--rr-max` ile değişir). `trader-risk` için `trader/config.json`'a `"min_reward_risk": 1.5` (altını engeller) ve
+`"max_reward_risk": 3.5` (üstünü uyarır, kısmi kâr önerir) yazılabilir.
+
+**Eklenen: `/trader-elliott` (Elliott Wave).** ATR zigzag ile üç derecede swing bulur; dalga 2/B, 3, 4, 5, impulse tamamlandı,
+zigzag/flat C ve ending diagonal sayımlarını iki yönde dener. Kesin kurallardan birini çiğneyen sayımı atar (dalga 2 dalga 1'in
+başını geçemez, dalga 3 en kısa olamaz, dalga 4 dalga 1 bölgesine giremez, flat'te B, A'nın %90-138.2'si), kalanları kılavuzlara
+göre puanlar (Fibonacci oranları, alternation, hacim). Sayımlar aynı yönde birleşirse yön + geçersizlik seviyesi (doğal stop) +
+hedef verir; birleşmezse "Elliott burada karar vermiyor" der. `evaluate` geçmişte, yalnızca o an bilinen veriyle sayım yapıp
+yön tahminlerini taban oranla karşılaştırır. `reference.md` kuralları, kılavuzları ve akademik kanıtları özetler.
+
+```bash
+python3 day-trader/trader-elliott/elliott.py count BTCUSDT --source binance
+python3 day-trader/trader-elliott/elliott.py evaluate NQ=F --horizon 48
+```
 
 Henüz yok: alt zaman diliminde konfirmasyon.
 

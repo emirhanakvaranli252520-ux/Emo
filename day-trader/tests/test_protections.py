@@ -131,3 +131,17 @@ class Protections(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class RewardRiskBand(unittest.TestCase):
+    def test_over_max_reward_risk_warns_but_passes(self):
+        c = cfg({})
+        c.update(min_reward_risk=0.5, max_reward_risk=0.8)
+        res = check.check([tsla()], c, PORTFOLIO, PRICES, None, "2026-10-19", NOW, None, None)
+        r = res["results"][0]
+        self.assertEqual(r["verdict"], "PASS")
+        self.assertTrue(any("over your max_reward_risk 0.8" in w for w in r["warnings"]))
+        c.update(min_reward_risk=1.5, max_reward_risk=3.5)
+        r = check.check([tsla()], c, PORTFOLIO, PRICES, None, "2026-10-19", NOW, None, None)["results"][0]
+        self.assertEqual(r["verdict"], "BLOCK")             # the reel's 1R target is under a 1.5 minimum
+        self.assertTrue(any("under your minimum 1.5" in x for x in r["reasons"]))

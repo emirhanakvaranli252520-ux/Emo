@@ -44,6 +44,7 @@ What blocks an entry (on top):
                 entry and a fresh price (under 15 minutes old), so a stale plan
                 cannot understate the risk
   reward:risk   (target - entry) / (entry - stop) under min_reward_risk
+                (over the optional max_reward_risk it is a warning, not a block)
   daily loss    the max losses at the stops of today's entries plus this one
                 over max_daily_loss_usd (win or lose, each counts in full)
   trades        max_trades_per_day entries already placed today
@@ -746,6 +747,11 @@ def check(orders, cfg, portfolio=None, prices=None, state=None, today=None, now=
                             if min_rr and rr < min_rr - 1e-9:
                                 later.append("reward:risk: %.2f (target %s, entry %s, stop %s) is under your "
                                              "minimum %s" % (rr, _p(target), _p(ref), _p(stop), _num(min_rr)))
+                            max_rr = _f(c.get("max_reward_risk"))
+                            if max_rr and rr > max_rr + 1e-9:
+                                warns.append("reward:risk %.2f is over your max_reward_risk %s: a target that far "
+                                             "is reached less often; consider taking part at %sR"
+                                             % (rr, _num(max_rr), _num(max_rr)))
                     elif min_rr:
                         later.append("reward:risk: no target to measure it against (min_reward_risk %s)"
                                      % _num(min_rr))
