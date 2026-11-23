@@ -87,7 +87,16 @@ python3 day-trader/trader-elliott/elliott.py count BTCUSDT --source binance
 python3 day-trader/trader-elliott/elliott.py evaluate NQ=F --horizon 48
 ```
 
-Henüz yok: alt zaman diliminde konfirmasyon.
+**Alt zaman diliminde konfirmasyon:** `confirm`, M5 verisinden H1 mumları kurar, LTL→ITL→FVG bölgelerini bulur ve her birini
+M5'te izler: bölgeye dokunuş → bölgede yapılan dibin öncesindeki son M5 ara tepesinin üstünde kapanış (CHoCH) → giriş CHoCH
+kapanışı, stop bölgedeki M5 dibi (isteğe bağlı ATR tamponu), hedef H1 hedefi. R:R bandınız uygulanır (1.5 altı atlanır, 3.5
+üstünde 3.5R'de kâr alınır). Aynı bölgelerde **H1'den doğrudan girmek** ile **M5 CHoCH beklemek** karşılaştırılır. `--zone`
+ile kendi bölgenizi (key level, order block, range kenarı) izletebilirsiniz.
+
+```bash
+python3 day-trader/trader-structure/structure.py confirm NQ=F
+python3 day-trader/trader-structure/structure.py confirm BTCUSDT --source binance --days 30
+```
 
 ```bash
 python3 day-trader/trader-structure/structure.py scan BTCUSDT --source binance

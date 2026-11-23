@@ -35,7 +35,8 @@ description: >-
   "Monday range", "weekly range", "monthly range", "weekly open", "monthly
   open", "PWH", "PWL", "PDH", "midnight open", "premium discount", "açılış
   seviyesi", "haftalık range", "aylık range", "untaken highs", "STH
-  liquidity", "yakıt", "alınmamış tepe", "STL likidite", or wants the structure on NQ, ES, BTC, ETH
+  liquidity", "yakıt", "alınmamış tepe", "STL likidite", "confirmation", "konfirmasyon", "alt zaman dilimi",
+  "M5 CHoCH", "lower timeframe", "giriş onayı", or wants the structure on NQ, ES, BTC, ETH
   or a BIST stock.
 argument-hint: "SYMBOL [--source yahoo|binance] [--interval 1h|4h|1d] [--at TIME]"
 ---
@@ -67,6 +68,9 @@ python3 "${CLAUDE_SKILL_DIR}/structure.py" range NQ=F --range-window 36 --reclai
 python3 "${CLAUDE_SKILL_DIR}/structure.py" levels BTCUSDT --source binance          # opens, PDH/PWH/PMH, Monday range
 python3 "${CLAUDE_SKILL_DIR}/structure.py" levels NQ=F                              # CME calendar + NY midnight open
 python3 "${CLAUDE_SKILL_DIR}/structure.py" levels THYAO.IS --calendar bist
+python3 "${CLAUDE_SKILL_DIR}/structure.py" confirm NQ=F                             # H1 zones followed on M5 (Yahoo, 60 days)
+python3 "${CLAUDE_SKILL_DIR}/structure.py" confirm BTCUSDT --source binance --days 30
+python3 "${CLAUDE_SKILL_DIR}/structure.py" confirm ES=F --zone 6010-6018 --side long --stop 6000 --target 6060 --since "2026-11-24 16:30"
 ```
 
 Other flags: `--window 24` (bars after the ITL / ITH in which the FVG must
@@ -118,6 +122,34 @@ for them. `scan` treats them that way:
   over a short's) within a quarter of the risk, the stop is inside that
   liquidity: a run on it takes the stop too. The warning gives the price one
   tick past it.
+
+## Lower-timeframe confirmation
+
+`confirm` takes the lower-timeframe data (`--ltf`, default 5m), builds the H1
+bars from it (`--htf`), finds the LTL -> ITL -> FVG sequences there, and
+follows each one on M5 from the moment it became known:
+
+| step | rule |
+| --- | --- |
+| touch | the first M5 bar that reaches the H1 gap (a long: a low at or under its top) |
+| invalidation | an M5 close through the H1 stop (the ITL / ITH) before or after the touch |
+| CHoCH | after the touch, an M5 close through the last M5 swing high (`--swing` bars each side) that came before the low made in the zone, within `--window` bars (36 = 3 hours on M5); mirror for shorts |
+| plan | entry at the CHoCH close; stop at the low made in the zone (plus `--buffer` x M5 ATR, since that low is itself short-term liquidity); target the H1 target; displacement noted (a CHoCH body over one ATR, or an M5 FVG in the move, also given as a limit-entry zone) |
+| your band | R:R under `--rr-min` (1.5): skip; over `--rr-max` (3.5): take profit at 3.5R; in between: the H1 target |
+| result | stop or target first on M5 within `--hold` bars (288 = one day); a bar touching both is stopped |
+
+The summary compares, on the same sequences: entering at the H1 gap with
+the H1 stop, waiting for the M5 CHoCH with the H1 target, and the CHoCH
+with the band rules. Read it out: it tells the user whether waiting for
+confirmation helped on that market. `Live now` lists the zones being
+watched, with the M5 level a close must cross to confirm.
+
+`--zone LOW-HIGH --side long|short --stop X [--target Y] [--since TIME]`
+follows the user's own zone instead (a key level, an order block, a range
+edge after a raid).
+
+Data: Yahoo keeps 5m bars for 60 days; on Binance `--days` (default 30)
+fetches them in pages of 1000.
 
 ## Range and AMD (power of three)
 
@@ -187,7 +219,7 @@ became known; a bar that touches both stop and target counts as stopped.
 5. Say the regime now. If a range box is live, name its edges and phase;
    if an edge was raided, give the AMD read with its R:R, and say the user
    waits for their own confirmation. A `[range]` sequence is not the trade:
-   the raid is. Lower-timeframe confirmation is not built yet: say so.
+   the raid is. For the entry itself, use `confirm`.
 6. Read the liquidity map: the nearest untaken STH above and STL below, how
    fast this chart takes them, and how that compares with the baseline. Give
    T1 with every live sequence and repeat any stop warning.
@@ -205,6 +237,7 @@ became known; a bar that touches both stop and target counts as stopped.
 | Yahoo chart API, Binance klines API | the bars, free (Binance's public market data needs no key) |
 | `trader/structure.json` | `scan --write`: the points, the bias, the regime, the sequences and their record |
 | `trader/range.json` | `range --write`: the regime now, the range boxes, their raids and outcomes |
+| `trader/confirm.json` | `confirm --write`: each zone's M5 state, plan, result and the comparison |
 | `trader/levels.json` | `levels --write`: the key levels, the Monday range and the premium / discount read |
 
 ## Rules
