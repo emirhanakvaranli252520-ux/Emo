@@ -142,6 +142,7 @@ helps. In the table below, "M5" means the lower timeframe:
 | step | rule |
 | --- | --- |
 | mode | **itl (default, the user's way):** after the touch, the first LTF ITL (long) / ITH (short) whose low (high) formed at or after the touch; it confirms when it becomes known (its right-hand STL / STH is confirmed); entry at that bar's close, stop at the ITL low. **choch:** the CHoCH below. The user does not use CHoCH: use itl unless asked |
+| pattern | **classic:** LTL -> higher ITL -> FVG. **fast (high volume):** an ITL, the STH the move from it makes, and a bullish FVG inside that ITL -> STH leg (no LTL to wait for); taken only when H1 volume over the last 24 bars is at least `--fast-vol` (1.2) x its average over 120 (ATR when the data has no volume). Bearish mirrors. `--pattern both` (default), `classic` or `fast`; a fast zone identical to a classic one is counted once. The summary is split by pattern |
 | range | sequences that formed inside an H1 range box are left out of the comparison (the user's rule is for trending markets); `--include-range` keeps them |
 | touch | the first M5 bar that reaches the H1 gap (a long: a low at or under its top); if price reaches the H1 target first, the setup is missed and not watched further |
 | invalidation | an M5 close through the H1 stop (the ITL / ITH) before or after the touch |

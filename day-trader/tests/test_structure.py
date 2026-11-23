@@ -402,7 +402,7 @@ class LowerTimeframe(unittest.TestCase):
         out, err = io.StringIO(), io.StringIO()
         with redirect_stdout(out), redirect_stderr(err):
             code = st.main(["confirm", "TSLA", "--offline", TSLA, "--at", "2026-10-19 17:15", "--json",
-                            "--ltf", "5m", "--bias-tf", "none", "--mode", "choch"])
+                            "--ltf", "5m", "--bias-tf", "none", "--mode", "choch", "--pattern", "classic"])
         self.assertEqual(code, 0, err.getvalue())
         d = json.loads(out.getvalue())
         self.assertEqual((d["ltf"], d["htf"]), ("5m", "1h"))
@@ -510,3 +510,34 @@ class ItlConfirmation(unittest.TestCase):
             if l_["state"] == "confirmed":
                 self.assertEqual(l_["stop"], l_["itl"]["level"])
                 self.assertGreaterEqual(l_["itl"]["at"], l_["touch"])
+
+
+class FastPattern(unittest.TestCase):
+    def test_itl_then_sth_with_a_gap_in_that_leg(self):
+        bars = [{"t": T0 + 3600 * k, "o": 100, "h": 101, "l": 99, "c": 100.5} for k in range(20)]
+        t = {"ITL": [{"i": 5, "level": 98.0, "known": 8}], "ITH": [], "STH": [{"i": 12, "level": 110.0, "known": 13}],
+             "STL": [], "LTL": [], "LTH": []}
+        gaps = [{"i": 4, "dir": 1, "top": 99.5, "bottom": 99.0, "known": 5},      # before the ITL: not in the leg
+                {"i": 9, "dir": 1, "top": 104.0, "bottom": 102.0, "known": 10},
+                {"i": 12, "dir": 1, "top": 109.0, "bottom": 108.0, "known": 13}]  # the STH bar itself: too late
+        c = st._candidates(bars, t, gaps, 1, "fast", 24, 0.0)
+        self.assertEqual(len(c), 1)
+        sw, kind, itl, gap, known = c[0]
+        self.assertEqual((kind, sw["level"], itl["level"], gap["top"], known), ("STH", 110.0, 98.0, 104.0, 13))
+        self.assertEqual(st._candidates(bars, t, gaps, 1, "classic", 24, 0.0), [])   # no LTL, no classic
+
+    def test_volume_gate_and_split_on_real_data(self):
+        def run(*extra):
+            out = io.StringIO()
+            with redirect_stdout(out), redirect_stderr(io.StringIO()):
+                st.main(["confirm", "TSLA", "--offline", TSLA, "--data-interval", "5m", "--at", "2026-10-19 17:15",
+                         "--json"] + list(extra))
+            return json.loads(out.getvalue())
+        both = run()
+        self.assertEqual(set(both["by_pattern"]), {"classic", "fast"})
+        fast = [r for r in both["sequences"] if r["pattern"] == "fast"]
+        self.assertTrue(all(r["volume_rel"] >= 1.2 for r in fast))
+        loose = run("--pattern", "fast", "--fast-vol", "0")
+        self.assertGreater(loose["by_pattern"]["fast"]["sequences"], both["by_pattern"]["fast"]["sequences"])
+        for r in loose["sequences"]:
+            self.assertTrue(r["structure"].startswith(("ITL", "ITH")))

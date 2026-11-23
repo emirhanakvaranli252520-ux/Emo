@@ -262,31 +262,54 @@ def first(seq, pred):
     return None
 
 
-def scan_setups(bars, t, gaps, window=24, min_gap_pct=0.0):
-    """LTL -> higher ITL -> bullish FVG (and the bearish mirror). One setup per anchor ITL/ITH."""
+def _candidates(bars, t, gaps, side, pattern, window, min_gap_pct):
+    """(anchor, its type, the ITL / ITH, the gap, known) for each sequence of that pattern.
+      classic  an LTL, the first higher ITL after it, a bullish FVG within `window` bars of that ITL
+      fast     an ITL (an STL with higher STLs each side), the STH the move from it makes, and a
+               bullish FVG inside that leg: the high-volume version, with no LTL to wait for
+    Bearish mirrors. The move from the ITL must not close back through it before the gap formed."""
+    mids = t["ITL"] if side == 1 else t["ITH"]
+    big = lambda g: (g["top"] - g["bottom"]) / g["bottom"] * 100 >= min_gap_pct
     out = []
-    n = len(bars)
-    for side in (1, -1):
-        anchors = t["LTL"] if side == 1 else t["LTH"]
-        mids = t["ITL"] if side == 1 else t["ITH"]
-        opp_int = t["ITH"] if side == 1 else t["ITL"]
-        opp_long = t["LTH"] if side == 1 else t["LTL"]
-        for lt in anchors:
+    if pattern == "classic":
+        for lt in (t["LTL"] if side == 1 else t["LTH"]):
             nxt = first(mids, lambda m: m["i"] > lt["i"] and
                         (m["level"] > lt["level"] if side == 1 else m["level"] < lt["level"]))
             if nxt is None:
                 continue
-            gap = first(gaps, lambda g: g["dir"] == side and nxt["i"] < g["i"] <= nxt["i"] + window
-                        and (g["top"] - g["bottom"]) / g["bottom"] * 100 >= min_gap_pct)
+            gap = first(gaps, lambda g: g["dir"] == side and nxt["i"] < g["i"] <= nxt["i"] + window and big(g))
             if gap is None:
                 continue
-            # the move from the ITL must not have closed back through it before the gap formed
-            if any((bars[j]["c"] < nxt["level"]) if side == 1 else (bars[j]["c"] > nxt["level"])
-                   for j in range(nxt["i"] + 1, gap["i"] + 2)):
+            out.append((lt, "LTL" if side == 1 else "LTH", nxt, gap, max(lt["known"], nxt["known"], gap["known"])))
+    else:
+        for nxt in mids:
+            sw = first(t["STH"] if side == 1 else t["STL"], lambda p: p["i"] > nxt["i"])
+            if sw is None:
                 continue
-            known = max(lt["known"], nxt["known"], gap["known"])
-            s = {"dir": "bullish" if side == 1 else "bearish",
-                 "lt": {"type": "LTL" if side == 1 else "LTH", "level": r2(lt["level"]), "at": tr_time(bars[lt["i"]]["t"])},
+            gap = first(gaps, lambda g: g["dir"] == side and nxt["i"] < g["i"] and g["i"] + 1 <= sw["i"] and big(g))
+            if gap is None:
+                continue
+            out.append((sw, "STH" if side == 1 else "STL", nxt, gap, max(nxt["known"], gap["known"], sw["known"])))
+    keep = []
+    for lt, lt_type, nxt, gap, known in out:
+        if any((bars[j]["c"] < nxt["level"]) if side == 1 else (bars[j]["c"] > nxt["level"])
+               for j in range(nxt["i"] + 1, gap["i"] + 2)):
+            continue
+        keep.append((lt, lt_type, nxt, gap, known))
+    return keep
+
+
+def scan_setups(bars, t, gaps, window=24, min_gap_pct=0.0, pattern="classic"):
+    """LTL -> higher ITL -> bullish FVG, or (pattern "fast") ITL -> STH with a bullish FVG in that leg;
+    and the bearish mirrors. One setup per anchor."""
+    out = []
+    n = len(bars)
+    for side in (1, -1):
+        opp_int = t["ITH"] if side == 1 else t["ITL"]
+        opp_long = t["LTH"] if side == 1 else t["LTL"]
+        for lt, lt_type, nxt, gap, known in _candidates(bars, t, gaps, side, pattern, window, min_gap_pct):
+            s = {"dir": "bullish" if side == 1 else "bearish", "pattern": pattern,
+                 "lt": {"type": lt_type, "level": r2(lt["level"]), "at": tr_time(bars[lt["i"]]["t"])},
                  "it": {"type": "ITL" if side == 1 else "ITH", "level": r2(nxt["level"]), "at": tr_time(bars[nxt["i"]]["t"])},
                  "fvg": {"top": r2(gap["top"]), "bottom": r2(gap["bottom"]), "at": tr_time(bars[gap["i"]]["t"])},
                  "known_at": tr_time(bars[known]["t"] + bar_step(bars)), "_known": known, "_gap": gap,
@@ -1195,7 +1218,7 @@ def bias_at(dbars, t_utc, step=86400):
 
 def confirm_sequences(lbars, ltf, htf, now_utc, window=36, swing=2, hold=288, rr_band=(1.5, 3.5),
                       fvg_window=24, buffer=0.0, bias_bars=None, bias_tf=None, mode="itl", include_range=False,
-                      range_window=24):
+                      range_window=24, patterns=("classic", "fast"), fast_vol=1.2):
     """Every higher-timeframe LTL -> ITL -> FVG sequence (built from the same data), each followed on the
     lower timeframe; plus the comparison: entering at the HTF gap vs waiting for the LTF CHoCH."""
     lbars = closed_only(lbars, ltf, now_utc)
@@ -1206,11 +1229,23 @@ def confirm_sequences(lbars, ltf, htf, now_utc, window=36, swing=2, hold=288, rr
     if len(hbars) < 30:
         raise StructureError("only %d %s bars from this data: fetch more history (--days, --range)" % (len(hbars), htf))
     t = tiers(hbars)
-    setups = scan_setups(hbars, t, fvgs(hbars), fvg_window)
+    gaps_h = fvgs(hbars)
+    hreg = regime(hbars, range_window)
+    setups = scan_setups(hbars, t, gaps_h, fvg_window) if "classic" in patterns else []
+    if "fast" in patterns:
+        seen = set((s["_gap"]["i"], s["_it"]["i"]) for s in setups)
+        for s in scan_setups(hbars, t, gaps_h, fvg_window, pattern="fast"):
+            if (s["_gap"]["i"], s["_it"]["i"]) in seen:
+                continue                            # the same zone as a classic sequence
+            r = hreg[s["_known"]]
+            rel = r.get("vol_rel") if r.get("vol_rel") is not None else r.get("atr_rel")
+            s["volume_rel"] = None if rel is None else round(rel, 2)
+            if rel is not None and rel >= fast_vol:
+                setups.append(s)
+        setups.sort(key=lambda s: s["_known"])
     piv = ltf_pivots(lbars, swing)
     lt = tiers(lbars) if mode == "itl" else None
     atr = ltf_atr(lbars)
-    hreg = regime(hbars, range_window)
     hboxes = amd_boxes(hbars, hreg, range_window)
     times = [b["t"] for b in lbars]
     rows = []
@@ -1240,7 +1275,12 @@ def confirm_sequences(lbars, ltf, htf, now_utc, window=36, swing=2, hold=288, rr
         bias = why = None
         if bias_bars is not None:
             bias, why = bias_at(bias_bars, start_t, SECONDS[bias_tf])
-        rows.append({"dir": s["dir"], "known_at": s["known_at"], "zone": [s["fvg"]["bottom"], s["fvg"]["top"]],
+        rows.append({"dir": s["dir"], "pattern": s.get("pattern", "classic"), "volume_rel": s.get("volume_rel"),
+                     "structure": "%s %.2f -> %s %.2f" % ((s["lt"]["type"], s["lt"]["level"], s["it"]["type"],
+                                                            s["it"]["level"]) if s.get("pattern") != "fast" else
+                                                           (s["it"]["type"], s["it"]["level"], s["lt"]["type"],
+                                                            s["lt"]["level"])),
+                     "known_at": s["known_at"], "zone": [s["fvg"]["bottom"], s["fvg"]["top"]],
                      "bias": bias, "bias_why": why, "in_range": in_range, "regime": hreg[k]["state"],
                      "aligned": None if bias is None else bias == s["dir"],
                      "htf_plan": {"entry": p["entry"], "stop": p["stop"], "target": p["target"],
@@ -1257,8 +1297,9 @@ def confirm_sequences(lbars, ltf, htf, now_utc, window=36, swing=2, hold=288, rr
     if not include_range:
         rows = [r for r in rows if not r["in_range"]]
 
-    def tally(key, only=None):
-        xs = [r[key] for r in rows if r[key] is not None and (only is None or r["aligned"] is only)]
+    def tally(key, only=None, pattern=None):
+        xs = [r[key] for r in rows if r[key] is not None and (only is None or r["aligned"] is only)
+              and (pattern is None or r["pattern"] == pattern)]
         return {"trades": len(xs), "wins": sum(1 for x in xs if x > 0), "total_r": r2(sum(xs)),
                 "avg_r": r2(sum(xs) / len(xs)) if xs else None}
     conf = [r for r in rows if r["ltf"]["state"].startswith("confirmed")]
@@ -1279,7 +1320,10 @@ def confirm_sequences(lbars, ltf, htf, now_utc, window=36, swing=2, hold=288, rr
                     "no_confirmation": sum(1 for r in rows if r["ltf"]["state"].startswith("no ")),
                     "missed": sum(1 for r in rows if r["ltf"]["state"].startswith("missed")),
                     "invalidated": sum(1 for r in rows if r["ltf"]["state"].startswith("invalid"))},
-        "bias_tf": bias_tf,
+        "bias_tf": bias_tf, "patterns": list(patterns), "fast_vol": fast_vol,
+        "by_pattern": {pt: {"sequences": sum(1 for r in rows if r["pattern"] == pt),
+                            "htf_entry": tally("htf_r", pattern=pt), "ltf_confirmed": tally("ltf_r", pattern=pt),
+                            "ltf_with_band": tally("band_r", pattern=pt)} for pt in patterns},
         "by_bias": None if bias_bars is None else {
             "aligned": {"sequences": sum(1 for r in rows if r["aligned"] is True),
                         "htf_entry": tally("htf_r", True), "ltf_confirmed": tally("ltf_r", True),
@@ -1367,6 +1411,8 @@ def render_confirm(doc):
         if r.get("bias"):
             out.append("  %s bias %s (%s): %s" % (doc.get("bias_tf"), r["bias"], r["bias_why"],
                                                   "ALIGNED" if r["aligned"] else "against / unclear"))
+        out.append("  %s %s%s" % (r["pattern"], r["structure"], (", H1 volume %.1fx normal" % r["volume_rel"])
+                                  if r.get("volume_rel") is not None else ""))
         out.append("  %-7s known %s zone %.2f-%.2f | HTF: entry %.2f stop %.2f target %.2f R:R %s -> %s" % (
             r["dir"], r["known_at"][5:], r["zone"][0], r["zone"][1], h["entry"], h["stop"], h["target"],
             "n/a" if h["rr"] is None else "%.2f" % h["rr"], h["status"]))
@@ -1385,6 +1431,16 @@ def render_confirm(doc):
                                                    doc["rr_band"][1]),
             "  touched %d, confirmed %d, no confirmation %d, invalidated %d, ran to the target untouched %d" % (
                 c["touched"], c["confirmed"], c["no_confirmation"], c["invalidated"], c["missed"])]
+    bp = doc.get("by_pattern") or {}
+    if len(bp) > 1:
+        out += ["", "Split by H1 pattern (fast = ITL -> STH -> FVG, only when H1 volume >= %.1fx normal):"
+                % doc["fast_vol"]]
+        for pt, g in bp.items():
+            out.append("  %-18s %d sequence(s)" % (pt, g["sequences"]))
+            for k2, l2 in (("htf_entry", "HTF entry"), ("ltf_confirmed", "LTF conf."), ("ltf_with_band", "LTF + band")):
+                x = g[k2]
+                out.append("      %-10s %d trades, %d won, total %s R, avg %s R" % (l2, x["trades"], x["wins"],
+                                                                                  x["total_r"], x["avg_r"]))
     bb = doc.get("by_bias")
     if bb:
         out += ["", "Split by the %s bias (bias now: %s):" % (doc["bias_tf"], bb["bias_now"])]
@@ -1665,7 +1721,9 @@ def cmd_confirm(a):
     else:
         doc = confirm_sequences(bars, a.ltf, a.htf, now, a.window, a.swing, a.hold, band, buffer=a.buffer,
                                 bias_bars=bias_bars, bias_tf=a.bias_tf, mode=a.mode,
-                                include_range=a.include_range, range_window=a.range_window)
+                                include_range=a.include_range, range_window=a.range_window,
+                                patterns=("classic", "fast") if a.pattern == "both" else (a.pattern,),
+                                fast_vol=a.fast_vol)
         out = render_confirm(doc)
     doc["symbol"] = sym
     if a.write:
@@ -1716,6 +1774,10 @@ def build_parser():
     p.add_argument("--htf", default="1h", help="the timeframe of the zones (default 1h, built from the LTF data)")
     p.add_argument("--mode", choices=["itl", "choch"], default="itl",
                    help="the LTF confirmation: itl (default: an LTF ITL / ITH forming after the touch) or choch")
+    p.add_argument("--pattern", choices=["both", "classic", "fast"], default="both",
+                   help="H1 zones: classic (LTL -> ITL -> FVG), fast (ITL -> STH -> FVG on high volume) or both")
+    p.add_argument("--fast-vol", type=float, default=1.2,
+                   help="the fast pattern needs H1 volume at least this many times normal (default 1.2)")
     p.add_argument("--include-range", action="store_true",
                    help="keep sequences that formed inside an H1 range box in the comparison")
     p.add_argument("--bias-tf", default="1d", help="the bias timeframe (default 1d; none to switch it off)")

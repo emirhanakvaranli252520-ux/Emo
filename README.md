@@ -19,7 +19,7 @@ geliştirildi. 15 skill, `.claude/skills/` altından bu projede doğrudan `/trad
 python3 day-trader/trader-journal/journal.py snapshot   # planı ve Time Machine olasılıklarını sakla
 python3 day-trader/trader-journal/journal.py import     # dolumlar -> puanlanmış işlemler
 python3 day-trader/trader-journal/journal.py stats      # karne
-python3 -m unittest discover -s day-trader/tests        # 396 test, çevrimdışı
+python3 -m unittest discover -s day-trader/tests        # 398 test, çevrimdışı
 ```
 
 **Freqtrade'den uyarlanan fikirler** ([freqtrade/freqtrade](https://github.com/freqtrade/freqtrade), GPLv3: kod kopyalanmadı, yalnızca kavramlar sıfırdan yazıldı):
@@ -92,6 +92,9 @@ M5'te izler: bölgeye dokunuş → bölgede yapılan dibin öncesindeki son M5 a
 kapanışı, stop bölgedeki M5 dibi (isteğe bağlı ATR tamponu), hedef H1 hedefi. R:R bandınız uygulanır (1.5 altı atlanır, 3.5
 üstünde 3.5R'de kâr alınır). Aynı bölgelerde **H1'den doğrudan girmek** ile **M5 CHoCH beklemek** karşılaştırılır. `--zone`
 ile kendi bölgenizi (key level, order block, range kenarı) izletebilirsiniz.
+
+**Hacimli piyasa kalıbı:** H1 hacmi normalin en az 1.2 katıyken LTL beklenmez; ITL → STH ve bu bacakta bırakılan FVG
+bölge olur (ayıda ITH → STL). `--pattern both|classic|fast`, eşik `--fast-vol`. Sonuçlar kalıba göre ayrılır.
 
 Varsayılan konfirmasyon **15m ITL/ITH**: FVG'ye dokunuştan sonra 15m'de oluşan ilk ITL (long) / ITH (short) kesinleşince
 giriş, stop ITL dibinde (CHoCH isteğe bağlı: `--mode choch`). H1 range kutusu içinde oluşan kurulumlar karşılaştırmaya
