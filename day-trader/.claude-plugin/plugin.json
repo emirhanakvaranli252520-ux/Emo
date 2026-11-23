@@ -1,6 +1,6 @@
 {
   "name": "day-trader-skill",
-  "description": "13 Claude skills for day trading: scan thousands of charts, map smart-money levels, track breaking news, time every entry and exit, replay every outcome before you risk a dollar, and score every trade after.",
+  "description": "14 Claude skills for day trading: scan thousands of charts, map smart-money levels and market structure, track breaking news, time every entry and exit, replay every outcome before you risk a dollar, and score every trade after.",
   "version": "2.0.0",
   "author": {
     "name": "Jake Schincariol",
@@ -18,7 +18,8 @@
     "opening-range-breakout",
     "paper-trading",
     "trade-journal",
-    "smart-money-concepts"
+    "smart-money-concepts",
+    "market-structure"
   ],
   "skills": "./"
 }

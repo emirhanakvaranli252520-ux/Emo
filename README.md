@@ -4,7 +4,7 @@ Türk hukukuna özel yapay zekâ ajanı: dilekçe ve sözleşme taslağı hazır
 ## Day Trader skill paketi (`day-trader/`)
 
 [Jakeschincariol/day-trader-skill](https://github.com/Jakeschincariol/day-trader-skill) (MIT) paketi bu depoya eklendi ve
-geliştirildi. 13 skill, `.claude/skills/` altından bu projede doğrudan `/trader-*` komutu olarak çalışır.
+geliştirildi. 14 skill, `.claude/skills/` altından bu projede doğrudan `/trader-*` komutu olarak çalışır.
 
 **Eklenen: `/trader-journal` (İşlem Günlüğü).** Orijinal pakette işlem sonrası değerlendirme yoktu. Yeni skill:
 
@@ -19,7 +19,7 @@ geliştirildi. 13 skill, `.claude/skills/` altından bu projede doğrudan `/trad
 python3 day-trader/trader-journal/journal.py snapshot   # planı ve Time Machine olasılıklarını sakla
 python3 day-trader/trader-journal/journal.py import     # dolumlar -> puanlanmış işlemler
 python3 day-trader/trader-journal/journal.py stats      # karne
-python3 -m unittest discover -s day-trader/tests        # 349 test, çevrimdışı
+python3 -m unittest discover -s day-trader/tests        # 358 test, çevrimdışı
 ```
 
 **Freqtrade'den uyarlanan fikirler** ([freqtrade/freqtrade](https://github.com/freqtrade/freqtrade), GPLv3: kod kopyalanmadı, yalnızca kavramlar sıfırdan yazıldı):
@@ -37,5 +37,17 @@ eşit tepe/dipler (likidite havuzları, süpürüldü mü) ve önceki günün te
 üstündeki dirençleri listeler; `/trader-entry` için giriş seviyesi, `/trader-exit` için stop önerir ve ödül:risk 1'in altındaysa uyarır.
 Kütüphanedeki iki **geleceğe bakma (look-ahead)** hatası düzeltildi: swing'ler ancak N mum kapandıktan sonra sayılır,
 son muma sahte swing konmaz ve önceden onaylanmış swing'ler sonraki mumlar yüzünden silinmez.
+
+**Eklenen: `/trader-structure` (Advanced Market Structure).** Swing'leri üç katmanda sınıflar:
+STH/STL (3 mumluk pivot), ITH/ITL (iki yanında daha düşük STH olan STH; dipler tersi), LTH/LTL (iki yanında daha düşük ITH olan ITH).
+Her nokta ancak bilinebildiği mumdan itibaren kullanılır (geleceğe bakmaz). **LTL → daha yüksek ITL → boğa FVG** dizisini
+(ve LTH → daha düşük ITH → ayı FVG) H1'de bulur; giriş FVG'nin yakın kenarı, stop ITL/ITH, hedef henüz alınmamış karşı likidite.
+Her dizinin sonucunu da izler (hedef, stop, kaçtı, geçersiz). NQ=F, ES=F, BTC/ETH (Binance veya Yahoo) ve BIST; saatler Türkiye saati.
+Henüz yok: range/AMD filtresi ve alt zaman diliminde konfirmasyon.
+
+```bash
+python3 day-trader/trader-structure/structure.py scan BTCUSDT --source binance
+python3 day-trader/trader-structure/structure.py scan NQ=F
+```
 
 Yatırım tavsiyesi değildir. Hiçbir emir kullanıcının açık "evet"i olmadan verilmez; varsayılan kâğıt üzerinde işlemdir (paper trading).
