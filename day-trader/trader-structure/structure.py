@@ -346,13 +346,25 @@ def bias(t):
     return "mixed (%s ITH, %s ITL)" % ("higher" if hh else "lower", "higher" if hl else "lower")
 
 
-def analyze(sym, bars, interval, now_utc, window=24, recent=5, min_gap_pct=0.0, resampled=False):
+def analyze(sym, bars, interval, now_utc, window=24, recent=5, min_gap_pct=0.0, resampled=False,
+            range_window=24, skip_range=False):
     bars = closed_only(bars, interval, now_utc, resampled)
     if len(bars) < 20:
         raise StructureError("only %d closed bar(s) of %s by then: need at least 20" % (len(bars), sym))
     t = tiers(bars)
     gaps = fvgs(bars)
     setups = scan_setups(bars, t, gaps, window, min_gap_pct)
+    reg = regime(bars, range_window)
+    boxes = amd_boxes(bars, reg, range_window)
+    for s in setups:
+        k = s["_known"]
+        s["regime"] = reg[k]["state"]
+        s["in_range_box"] = box_at(boxes, k) is not None
+    hidden = 0
+    if skip_range:
+        keep = [s for s in setups if not s["in_range_box"]]
+        hidden = len(setups) - len(keep)
+        setups = keep
 
     def pts(name):
         return [{"type": name, "level": r2(p["level"]), "at": tr_time(bars[p["i"]]["t"]),
@@ -379,11 +391,243 @@ def analyze(sym, bars, interval, now_utc, window=24, recent=5, min_gap_pct=0.0, 
                    "stopped": sum(1 for s in done if s["status"] == "stopped"),
                    "missed": sum(1 for s in setups if s["status"] == "missed"),
                    "invalid": sum(1 for s in setups if s["status"] == "invalid")},
+        "by_regime": record_by(setups, lambda s: "inside a range box" if s["in_range_box"] else
+                               "regime " + s["regime"]),
+        "hidden_in_range": hidden,
+        "regime_now": regime_now(reg, boxes, bars),
         "active": [{k: v for k, v in s.items() if not k.startswith("_")} for s in active][-5:],
         "note": ("Structure points and setups are a way to read the chart, not a signal and not financial "
                  "advice. Every setup still needs your own confirmation, a stop, the risk check and your yes. "
-                 "Range / AMD filtering is not applied yet: a setup inside a low-volume range is weaker."),
+                 "A sequence inside a range box is flagged [range]: there, wait for the raid (AMD) instead."),
     }
+
+
+def record_by(setups, key):
+    out = {}
+    for s in setups:
+        r = out.setdefault(key(s), {"sequences": 0, "tapped": 0, "target": 0, "stopped": 0})
+        r["sequences"] += 1
+        if s["status"] in ("tapped", "target", "stopped"):
+            r["tapped"] += 1
+        if s["status"] in ("target", "stopped"):
+            r[s["status"]] += 1
+    return out
+
+
+def regime_now(reg, boxes, bars):
+    r = reg[-1]
+    out = {k: r.get(k) for k in ("state", "er", "vol_rel", "atr_rel", "touches")}
+    live = box_at(boxes, len(bars) - 1)
+    out["box"] = box_doc(live, bars) if live and live["end"] is None else None
+    return out
+
+
+def analyze_range(sym, bars, interval, now_utc, resampled=False, range_window=24, reclaim=3, recent=6):
+    bars = closed_only(bars, interval, now_utc, resampled)
+    need = range_window * 5 + 2
+    if len(bars) < need:
+        raise StructureError("only %d closed bar(s) of %s: the range filter needs %d (5 x --range-window + 2)"
+                             % (len(bars), sym, need))
+    reg = regime(bars, range_window)
+    boxes = amd_boxes(bars, reg, range_window, reclaim)
+    docs = [box_doc(b, bars) for b in boxes]
+    ended = [d for d in docs if d["outcome"]]
+    raided = [b for b in boxes if b.get("side") is not None]
+    amd = [b for b in raided if b["outcome"] and b["outcome"].startswith("AMD")]
+    failed = [b for b in raided if b["outcome"] and b["outcome"].startswith("failed")]
+    states = [r["state"] for r in reg if r["state"] != "unknown"]
+    return {
+        "created_by": "trader-structure", "mode": "range",
+        "symbol": sym, "interval": interval, "bars": len(bars), "range_window": range_window,
+        "last_bar": tr_time(bars[-1]["t"]), "price": r2(bars[-1]["c"]), "timezone": "Turkey (UTC+3)",
+        "volume_in_data": any(r.get("vol_rel") is not None for r in reg),
+        "now": regime_now(reg, boxes, bars),
+        "time_in_range_pct": r2(100.0 * states.count("range") / len(states)) if states else None,
+        "boxes": docs[-recent:],
+        "record": {"boxes": len(boxes), "ended": len(ended), "raided": len(raided),
+                   "amd_complete": len(amd), "raid_failed": len(failed),
+                   "breakout_no_raid": sum(1 for b in boxes if (b["outcome"] or "").startswith("breakout")),
+                   "faded": sum(1 for b in boxes if b["outcome"] == "faded")},
+        "note": ("A range is read from efficiency, volume and edge visits; a raid is a take of one edge that "
+                 "comes back inside; AMD is complete when the opposite edge breaks. It is a reading, not a "
+                 "signal and not financial advice: wait for your own confirmation after the raid."),
+    }
+
+
+# ---------------------------------------------------------------- range / AMD (power of three)
+
+def efficiency(bars, i, n):
+    """Kaufman efficiency ratio over the n bars up to i: net move / total path. Near 0 = chop."""
+    path = sum(abs(bars[j]["c"] - bars[j - 1]["c"]) for j in range(i - n + 1, i + 1))
+    return abs(bars[i]["c"] - bars[i - n]["c"]) / path if path > 0 else 0.0
+
+
+def true_range(bars, j):
+    b, pc = bars[j], bars[j - 1]["c"]
+    return max(b["h"] - b["l"], abs(b["h"] - pc), abs(b["l"] - pc))
+
+
+def edge_touches(bars, lo_i, hi_i, level, tol, top):
+    """Separate visits to an edge: runs of bars whose high (low) came within tol of it."""
+    n, inside = 0, False
+    for j in range(lo_i, hi_i + 1):
+        near = bars[j]["h"] >= level - tol if top else bars[j]["l"] <= level + tol
+        if near and not inside:
+            n += 1
+        inside = near
+    return n
+
+
+def regime(bars, window=24, long_mult=5, er_max=0.3, vol_ratio=0.8, atr_ratio=0.85, edge_tol=0.15):
+    """Per bar, from that bar and the ones before it only:
+      range  the net move over `window` bars is small next to the path (efficiency under er_max),
+             volume is under vol_ratio x its long average (or, with no volume in the data, the ATR is
+             under atr_ratio x its long average), and both edges were visited at least twice
+      trend  efficiency 0.5 or more
+      mixed  anything else; unknown until there is a long window of history"""
+    long_n = window * long_mult
+    has_vol = sum(1 for b in bars if b.get("v")) > len(bars) // 2
+    out = []
+    for i in range(len(bars)):
+        if i < long_n:
+            out.append({"state": "unknown"})
+            continue
+        er = efficiency(bars, i, window)
+        tr_s = sum(true_range(bars, j) for j in range(i - window + 1, i + 1)) / window
+        tr_l = sum(true_range(bars, j) for j in range(i - long_n + 1, i + 1)) / long_n
+        atr_rel = tr_s / tr_l if tr_l > 0 else 1.0
+        vol_rel = None
+        if has_vol:
+            v_s = sum(bars[j].get("v", 0) for j in range(i - window + 1, i + 1)) / window
+            v_l = sum(bars[j].get("v", 0) for j in range(i - long_n + 1, i + 1)) / long_n
+            vol_rel = v_s / v_l if v_l > 0 else 1.0
+        hi = max(bars[j]["h"] for j in range(i - window + 1, i + 1))
+        lo = min(bars[j]["l"] for j in range(i - window + 1, i + 1))
+        tol = (hi - lo) * edge_tol
+        tops = edge_touches(bars, i - window + 1, i, hi, tol, True)
+        bots = edge_touches(bars, i - window + 1, i, lo, tol, False)
+        quiet = (vol_rel < vol_ratio) if vol_rel is not None else (atr_rel < atr_ratio)
+        if er < er_max and quiet and tops >= 2 and bots >= 2:
+            state = "range"
+        elif er >= 0.5:
+            state = "trend"
+        else:
+            state = "mixed"
+        out.append({"state": state, "er": round(er, 3), "atr_rel": round(atr_rel, 3),
+                    "vol_rel": None if vol_rel is None else round(vol_rel, 3), "high": hi, "low": lo,
+                    "touches": [tops, bots]})
+    return out
+
+
+def amd_boxes(bars, reg, window=24, reclaim=3, max_mult=5):
+    """Range boxes and what happened to each, bar by bar (power of three):
+      accumulation  the box, frozen when the regime first says range
+      manipulation  one edge taken: a wick through it that closes back inside, or closes outside that
+                    come back inside within `reclaim` bars. The extreme of the raid is kept
+      distribution  after a manipulation, a close beyond the OPPOSITE edge: AMD complete
+    Other endings: breakout (closed outside for `reclaim` bars with no raid before), failed (closed
+    beyond the raid's extreme: it was a real move, not a raid), faded (no ending in max_mult x window)."""
+    boxes, box = [], None
+    n = len(bars)
+    resume = 0                      # after a box ends, wait half a window before the next one
+    i = 0
+    while i < n:
+        if box is None:
+            if i >= resume and reg[i]["state"] == "range":
+                hi, lo = reg[i]["high"], reg[i]["low"]
+                box = {"start": i - window + 1, "detected": i, "high": hi, "low": lo, "phase": "accumulation",
+                       "events": [], "outside": None, "extreme": None, "side": None, "end": None,
+                       "outcome": None}
+            i += 1
+            continue
+        b = bars[i]
+        hi, lo = box["high"], box["low"]
+        ph = box["phase"]
+        if ph == "accumulation":
+            if box["outside"] is not None:
+                side, since = box["outside"]
+                back = (b["c"] <= hi) if side == 1 else (b["c"] >= lo)
+                if back:
+                    ext = max(bars[j]["h"] for j in range(since, i + 1)) if side == 1 else \
+                        min(bars[j]["l"] for j in range(since, i + 1))
+                    box.update(phase="manipulation", side=side, extreme=ext, outside=None, raid_at=i)
+                    box["events"].append({"i": i, "type": "raid " + ("high" if side == 1 else "low"),
+                                          "extreme": ext, "how": "closed back inside after %d bar(s) out"
+                                          % (i - since)})
+                elif i - since + 1 >= reclaim:
+                    box.update(end=i, outcome="breakout " + ("up" if side == 1 else "down"), outside=None)
+            elif b["c"] > hi or b["c"] < lo:
+                box["outside"] = (1 if b["c"] > hi else -1, i)
+            elif b["h"] > hi or b["l"] < lo:
+                side = 1 if b["h"] > hi else -1
+                if b["h"] > hi and b["l"] < lo:          # both edges in one bar: the one it closed away from
+                    side = 1 if b["c"] < (hi + lo) / 2 else -1
+                ext = b["h"] if side == 1 else b["l"]
+                box.update(phase="manipulation", side=side, extreme=ext, raid_at=i)
+                box["events"].append({"i": i, "type": "raid " + ("high" if side == 1 else "low"),
+                                      "extreme": ext, "how": "wick through the edge, closed back inside"})
+        elif ph == "manipulation":
+            side, ext = box["side"], box["extreme"]
+            if (side == -1 and b["c"] > hi) or (side == 1 and b["c"] < lo):
+                box.update(end=i, outcome="AMD " + ("bullish" if side == -1 else "bearish"))
+                box["events"].append({"i": i, "type": "distribution", "how": "closed beyond the opposite edge"})
+            elif (side == -1 and b["c"] < ext) or (side == 1 and b["c"] > ext):
+                box.update(end=i, outcome="failed: closed beyond the raid, a real move " +
+                           ("down" if side == -1 else "up"))
+            elif side == -1 and b["l"] < ext:
+                box["extreme"] = b["l"]
+            elif side == 1 and b["h"] > ext:
+                box["extreme"] = b["h"]
+        if box["end"] is None and i - box["detected"] >= max_mult * window:
+            box.update(end=i, outcome="faded")
+        if box["end"] is not None:
+            boxes.append(box)
+            box = None
+            resume = i + 1 + window // 2
+        i += 1
+    if box is not None:
+        boxes.append(box)
+    return boxes
+
+
+def amd_plan(box, bars):
+    """After a raid of one edge: long from the reclaim close (raid of the low), stop past the raid's
+    extreme, first target the opposite edge, second the opposite edge plus the box height."""
+    if box.get("side") is None:
+        return None
+    side = -box["side"]                       # trade AGAINST the raided side
+    i = box["raid_at"]
+    entry, ext = bars[i]["c"], box["extreme"]
+    height = box["high"] - box["low"]
+    stop = ext
+    t1 = box["high"] if side == 1 else box["low"]
+    t2 = t1 + height if side == 1 else t1 - height
+    risk = abs(entry - stop)
+    return {"dir": "long" if side == 1 else "short", "entry": r2(entry), "stop": r2(stop),
+            "target1": r2(t1), "target2": r2(t2), "risk": r2(risk),
+            "rr1": r2(abs(t1 - entry) / risk) if risk > 0 else None,
+            "rr2": r2(abs(t2 - entry) / risk) if risk > 0 else None}
+
+
+def box_doc(box, bars):
+    return {"high": r2(box["high"]), "low": r2(box["low"]),
+            "height_pct": r2(100.0 * (box["high"] - box["low"]) / box["low"]),
+            "from": tr_time(bars[box["start"]]["t"]), "detected": tr_time(bars[box["detected"]]["t"]),
+            "phase": box["phase"] if box["end"] is None else "ended",
+            "raided": None if box.get("side") is None else ("high" if box["side"] == 1 else "low"),
+            "raid_extreme": r2(box.get("extreme")),
+            "events": [{"at": tr_time(bars[e["i"]]["t"]), "type": e["type"], "how": e["how"],
+                        "extreme": r2(e.get("extreme"))} for e in box["events"]],
+            "ended": tr_time(bars[box["end"]]["t"]) if box["end"] is not None else None,
+            "outcome": box["outcome"], "plan": amd_plan(box, bars)}
+
+
+def box_at(boxes, i):
+    """The box that was live at bar i (detected by then, not yet ended), else None."""
+    for b in boxes:
+        if b["detected"] <= i and (b["end"] is None or i < b["end"]):
+            return b
+    return None
 
 
 # ---------------------------------------------------------------- output
@@ -392,6 +636,7 @@ def render(doc):
     out = ["%s  %s  %d closed bars, %s to %s (Turkey time)" % (doc["symbol"], doc["interval"], doc["bars"],
                                                                  doc["first_bar"], doc["last_bar"]),
            "Last close %.2f   bias %s" % (doc["price"], doc["bias"]),
+           regime_line(doc["regime_now"]),
            "Points: %s" % ", ".join("%s %d" % (k, doc["counts"][k]) for k in
                                     ("LTH", "ITH", "STH", "LTL", "ITL", "STL")), ""]
     for k in ("LTH", "ITH", "LTL", "ITL"):
@@ -408,8 +653,8 @@ def render(doc):
             out.append("  %-7s %s %.2f (%s) -> %s %.2f (%s) -> FVG %.2f-%.2f (%s)" % (
                 s["dir"], s["lt"]["type"], s["lt"]["level"], s["lt"]["at"][5:], s["it"]["type"], s["it"]["level"],
                 s["it"]["at"][5:], s["fvg"]["bottom"], s["fvg"]["top"], s["fvg"]["at"][5:]))
-            out.append("          known %s  status %s%s  |  entry %.2f stop %.2f target %s R:R %s" % (
-                s["known_at"][5:], s["status"], (" " + s["status_at"][5:]) if s["status_at"] else "",
+            out.append("          known %s%s  status %s%s  |  entry %.2f stop %.2f target %s R:R %s" % (
+                s["known_at"][5:], " [range]" if s.get("in_range_box") else "", s["status"], (" " + s["status_at"][5:]) if s["status_at"] else "",
                 p["entry"], p["stop"], "n/a" if p["target"] is None else "%.2f" % p["target"],
                 "n/a" if p["reward_risk"] is None else "%.2f" % p["reward_risk"]))
     rc = doc["record"]
@@ -418,9 +663,70 @@ def render(doc):
                     "%d still open. %d ran off without a tap, %d invalid before a tap. A handful of cases proves "
                     "nothing." % (rc["sequences"], rc["tapped"], rc["target"], rc["stopped"],
                                   rc["tapped"] - rc["target"] - rc["stopped"], rc["missed"], rc["invalid"])]
+    if doc.get("by_regime") and len(doc["by_regime"]) > 1:
+        out.append("By regime when it became known:")
+        for k in sorted(doc["by_regime"]):
+            r = doc["by_regime"][k]
+            out.append("  %-20s %d sequence(s), %d tapped: %d target, %d stopped"
+                       % (k, r["sequences"], r["tapped"], r["target"], r["stopped"]))
+    if doc.get("hidden_in_range"):
+        out.append("Hidden: %d sequence(s) that formed inside a range box (--skip-range)" % doc["hidden_in_range"])
     if doc["active"]:
         out += ["", "Still live: %d (waiting for price to reach the FVG, or tapped and holding)" % len(doc["active"])]
     out += ["", doc["note"]]
+    return "\n".join(out)
+
+
+def regime_line(r):
+    if r.get("state") == "unknown":
+        return "Regime: unknown (not enough history for the range filter)"
+    bits = ["efficiency %.2f" % r["er"]]
+    if r.get("vol_rel") is not None:
+        bits.append("volume %.0f %% of normal" % (100 * r["vol_rel"]))
+    bits.append("ATR %.0f %% of normal" % (100 * r["atr_rel"]))
+    line = "Regime: %s (%s)" % (r["state"], ", ".join(bits))
+    if r.get("box"):
+        bx = r["box"]
+        line += "\n  inside a range box %.2f-%.2f since %s, phase %s%s" % (
+            bx["low"], bx["high"], bx["detected"][5:], bx["phase"],
+            (", %s raided at %.2f" % (bx["raided"], bx["raid_extreme"])) if bx["raided"] else "")
+    return line
+
+
+def render_range(doc):
+    out = ["%s  %s  range / AMD, window %d bars, last bar %s (Turkey time)" % (
+        doc["symbol"], doc["interval"], doc["range_window"], doc["last_bar"]),
+        "Last close %.2f" % doc["price"], regime_line(doc["now"])]
+    if not doc["volume_in_data"]:
+        out.append("  (no volume in this data: quiet = ATR under 85 %% of normal instead)")
+    if doc["time_in_range_pct"] is not None:
+        out.append("Time spent in a range regime in this data: %.0f %%" % doc["time_in_range_pct"])
+    bx = doc["now"].get("box")
+    if bx and bx.get("plan"):
+        p = bx["plan"]
+        out += ["", "Live raid: the %s was taken; the AMD read is %s" % (bx["raided"], p["dir"]),
+                "  reclaim close %.2f, stop %.2f (past the raid), target %.2f (opposite edge, R:R %s), "
+                "then %.2f (one box higher, R:R %s)" % (
+                    p["entry"], p["stop"], p["target1"], "n/a" if p["rr1"] is None else "%.2f" % p["rr1"],
+                    p["target2"], "n/a" if p["rr2"] is None else "%.2f" % p["rr2"]),
+                "  Wait for your own confirmation (a lower-timeframe shift) before acting on it."]
+    out += ["", "Recent range boxes (oldest first)"]
+    if not doc["boxes"]:
+        out.append("  none in this data")
+    for b in doc["boxes"]:
+        out.append("  %.2f-%.2f (%.2f %%)  from %s, detected %s  ->  %s%s" % (
+            b["low"], b["high"], b["height_pct"], b["from"][5:], b["detected"][5:],
+            b["outcome"] or "still live (%s)" % b["phase"], (" at " + b["ended"][5:]) if b["ended"] else ""))
+        for e in b["events"]:
+            out.append("      %s %s%s: %s" % (e["at"][5:], e["type"],
+                                             (" @ %.2f" % e["extreme"]) if e["extreme"] is not None else "",
+                                             e["how"]))
+    rc = doc["record"]
+    out += ["", "In this data: %d box(es); %d raided, of which %d completed AMD (opposite edge broke) and %d "
+                "failed (the raid kept going); %d broke out with no raid first; %d faded. A handful of boxes "
+                "proves nothing." % (rc["boxes"], rc["raided"], rc["amd_complete"], rc["raid_failed"],
+                                     rc["breakout_no_raid"], rc["faded"]),
+            "", doc["note"]]
     return "\n".join(out)
 
 
@@ -435,7 +741,8 @@ def write_json(path, data):
     os.replace(tmp, path)
 
 
-def cmd_scan(a):
+def load(a):
+    """The bars the flags ask for -> (sym, bars, interval, now, resampled)."""
     sym = a.symbol.upper()
     if not re.match(r"^[A-Z0-9.\-^=]{1,20}$", sym):
         raise StructureError("%r does not look like a symbol" % a.symbol)
@@ -470,33 +777,61 @@ def cmd_scan(a):
     elif gran and SECONDS.get(gran) and SECONDS[gran] != SECONDS[interval]:
         raise StructureError("the data has %s bars, not %s: pass --interval %s or --resample %s"
                              % (gran, interval, gran, interval))
-    doc = analyze(sym, bars, interval, now, a.window, min_gap_pct=a.min_gap, resampled=resampled)
+    if not 6 <= a.range_window <= 200:
+        raise StructureError("--range-window must be between 6 and 200 bars")
+    return sym, bars, interval, now, resampled
+
+
+def cmd_scan(a):
+    sym, bars, interval, now, resampled = load(a)
+    doc = analyze(sym, bars, interval, now, a.window, min_gap_pct=a.min_gap, resampled=resampled,
+                  range_window=a.range_window, skip_range=a.skip_range)
     if a.write:
         write_json(a.write, doc)
     return json.dumps(doc, indent=2) if a.json else render(doc)
+
+
+def cmd_range(a):
+    sym, bars, interval, now, resampled = load(a)
+    doc = analyze_range(sym, bars, interval, now, resampled, a.range_window, a.reclaim)
+    if a.write:
+        write_json(a.write, doc)
+    return json.dumps(doc, indent=2) if a.json else render_range(doc)
 
 
 def build_parser():
     ap = argparse.ArgumentParser(description="Advanced market structure: STH/ITH/LTH, STL/ITL/LTL and the "
                                              "LTL -> ITL -> FVG sequence.")
     sub = ap.add_subparsers(dest="cmd")
+    def common(p, default_out):
+        p.add_argument("symbol", help="NQ=F, ES=F, ^NDX, BTC-USD (Yahoo) or BTCUSDT (Binance), XU100.IS ...")
+        p.add_argument("--source", choices=["yahoo", "binance"], default="yahoo")
+        p.add_argument("--interval", default="1h", help="1h (default), 4h, 1d, 15m, 5m ...")
+        p.add_argument("--range", help="Yahoo range (default 60d intraday, 2y daily)")
+        p.add_argument("--fetch-interval", help="Yahoo bar size to download (default: --interval)")
+        p.add_argument("--limit", type=int, default=720, help="Binance bars to fetch (default 720, max 1000)")
+        p.add_argument("--resample", help="build bigger bars from the data first, e.g. 5m data -> 1h")
+        p.add_argument("--range-window", type=int, default=24,
+                       help="bars the range filter looks at (default 24; its long average uses 5x that)")
+        p.add_argument("--at", help="as of this Turkey time, only bars closed by then")
+        p.add_argument("--offline", help="a saved Yahoo chart JSON or Binance klines JSON (.json or .json.gz)")
+        p.add_argument("--json", action="store_true")
+        p.add_argument("--write", nargs="?", const=default_out, metavar="PATH",
+                       help="save the result (default %s)" % default_out)
+
     p = sub.add_parser("scan", help="classify the structure and list the sequences")
-    p.add_argument("symbol", help="NQ=F, ES=F, ^NDX, BTC-USD (Yahoo) or BTCUSDT (Binance), XU100.IS ...")
-    p.add_argument("--source", choices=["yahoo", "binance"], default="yahoo")
-    p.add_argument("--interval", default="1h", help="1h (default), 4h, 1d, 15m, 5m ...")
-    p.add_argument("--range", help="Yahoo range (default 60d intraday, 2y daily)")
-    p.add_argument("--fetch-interval", help="Yahoo bar size to download (default: --interval)")
-    p.add_argument("--limit", type=int, default=720, help="Binance bars to fetch (default 720, max 1000)")
-    p.add_argument("--resample", help="build bigger bars from the data first, e.g. 5m data -> 1h")
+    common(p, "trader/structure.json")
     p.add_argument("--window", type=int, default=24,
                    help="bars after the ITL/ITH in which the FVG must appear (default 24)")
     p.add_argument("--min-gap", type=float, default=0.0, help="ignore FVGs smaller than this percent")
-    p.add_argument("--at", help="as of this Turkey time, only bars closed by then")
-    p.add_argument("--offline", help="a saved Yahoo chart JSON or Binance klines JSON (.json or .json.gz)")
-    p.add_argument("--json", action="store_true")
-    p.add_argument("--write", nargs="?", const="trader/structure.json", metavar="PATH",
-                   help="save the result (default trader/structure.json)")
+    p.add_argument("--skip-range", action="store_true", help="hide sequences that formed inside a range box")
     p.set_defaults(fn=cmd_scan)
+
+    p = sub.add_parser("range", help="range / AMD: is the market ranging, was an edge raided, did AMD complete")
+    common(p, "trader/range.json")
+    p.add_argument("--reclaim", type=int, default=3,
+                   help="bars a close outside the box may last and still count as a raid (default 3)")
+    p.set_defaults(fn=cmd_range)
     return ap
 
 

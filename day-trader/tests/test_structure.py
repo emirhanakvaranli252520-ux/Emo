@@ -145,3 +145,80 @@ class RealData(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def amd_bars(tail, volume=True):
+    """30 trending bars on heavy volume, 12 bars ranging 99-101 on light volume, then `tail`."""
+    bars = []
+    for k in range(30):
+        c = 90 + 0.3 * k
+        bars.append((c - 0.2, c + 0.3, c - 0.3, c, 1000))
+    for k in range(12):
+        bars.append((100, 101, 100.2, 100.5, 200) if k % 2 == 0 else (100, 99.8, 99, 99.5, 200))
+    bars += tail
+    return [{"t": T0 + 3600 * j, "o": o, "h": h, "l": l, "c": c, "v": v if volume else 0}
+            for j, (o, h, l, c, v) in enumerate(bars)]
+
+
+RAID_LOW = (99.6, 100, 98.5, 99.4, 300)
+
+
+class RangeAMD(unittest.TestCase):
+    def boxes(self, tail, volume=True):
+        bars = amd_bars(tail, volume)
+        reg = st.regime(bars, 6)
+        return bars, reg, st.amd_boxes(bars, reg, 6)
+
+    def test_the_range_is_found_from_efficiency_volume_and_edges(self):
+        bars, reg, boxes = self.boxes([])
+        self.assertEqual(reg[29]["state"], "unknown")
+        self.assertEqual(reg[35]["state"], "range")
+        self.assertLess(reg[35]["vol_rel"], 0.8)
+        self.assertEqual(reg[35]["touches"], [3, 3])
+        self.assertEqual((boxes[0]["detected"], boxes[0]["high"], boxes[0]["low"]), (35, 101, 99))
+        self.assertEqual(boxes[0]["phase"], "accumulation")
+
+    def test_raid_low_then_opposite_edge_is_bullish_amd(self):
+        bars, reg, boxes = self.boxes([RAID_LOW, (99.5, 100.8, 99.3, 100.6, 300), (100.6, 102, 100.5, 101.8, 900)])
+        b = boxes[0]
+        self.assertEqual((b["side"], b["extreme"], b["raid_at"]), (-1, 98.5, 42))
+        self.assertEqual((b["end"], b["outcome"]), (44, "AMD bullish"))
+        plan = st.amd_plan(b, bars)
+        self.assertEqual((plan["dir"], plan["entry"], plan["stop"], plan["target1"], plan["target2"], plan["rr1"]),
+                         ("long", 99.4, 98.5, 101, 103, 1.78))
+
+    def test_a_raid_that_keeps_going_failed(self):
+        bars, reg, boxes = self.boxes([RAID_LOW, (99.3, 99.4, 97.9, 98.2, 900)])
+        self.assertTrue(boxes[0]["outcome"].startswith("failed"))
+
+    def test_closes_outside_that_come_back_are_a_raid_but_staying_out_is_a_breakout(self):
+        back = [(99.2, 99.3, 98.6, 98.8, 300), (98.8, 99.6, 98.4, 99.5, 300)]
+        b = self.boxes(back)[2][0]
+        self.assertEqual((b["phase"], b["side"], b["extreme"]), ("manipulation", -1, 98.4))
+        out = [(99.2, 99.3, 98.6, 98.8, 300), (98.8, 98.9, 98.2, 98.5, 300), (98.5, 98.6, 97.8, 98.0, 300)]
+        b = self.boxes(out)[2][0]
+        self.assertEqual(b["outcome"], "breakout down")
+
+    def test_no_volume_falls_back_to_atr(self):
+        bars, reg, boxes = self.boxes([], volume=False)
+        self.assertIsNone(reg[35]["vol_rel"])
+        self.assertIn("atr_rel", reg[35])
+
+    def test_range_command_on_real_data(self):
+        out, err = io.StringIO(), io.StringIO()
+        with redirect_stdout(out), redirect_stderr(err):
+            code = st.main(["range", "TSLA", "--offline", TSLA, "--interval", "5m", "--resample", "1h",
+                            "--at", "2026-10-19 17:15", "--json"])
+        self.assertEqual(code, 0, err.getvalue())
+        d = json.loads(out.getvalue())
+        self.assertEqual(d["record"]["amd_complete"], 1)
+        box = d["boxes"][0]
+        self.assertEqual((box["low"], box["high"], box["raided"], box["outcome"]), (357.04, 371.83, "low", "AMD bullish"))
+        self.assertEqual(box["events"][0]["extreme"], 354.63)
+        # the same box marks the structure sequence that formed inside it
+        with redirect_stdout(io.StringIO()) as o2, redirect_stderr(io.StringIO()):
+            st.main(["scan", "TSLA", "--offline", TSLA, "--interval", "5m", "--resample", "1h",
+                     "--at", "2026-10-19 17:15", "--json"])
+        scan = json.loads(o2.getvalue())
+        self.assertIn("by_regime", scan)
+        self.assertIn(scan["regime_now"]["state"], ("range", "trend", "mixed"))

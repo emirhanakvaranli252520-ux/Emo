@@ -19,7 +19,7 @@ geliştirildi. 14 skill, `.claude/skills/` altından bu projede doğrudan `/trad
 python3 day-trader/trader-journal/journal.py snapshot   # planı ve Time Machine olasılıklarını sakla
 python3 day-trader/trader-journal/journal.py import     # dolumlar -> puanlanmış işlemler
 python3 day-trader/trader-journal/journal.py stats      # karne
-python3 -m unittest discover -s day-trader/tests        # 358 test, çevrimdışı
+python3 -m unittest discover -s day-trader/tests        # 364 test, çevrimdışı
 ```
 
 **Freqtrade'den uyarlanan fikirler** ([freqtrade/freqtrade](https://github.com/freqtrade/freqtrade), GPLv3: kod kopyalanmadı, yalnızca kavramlar sıfırdan yazıldı):
@@ -43,7 +43,19 @@ STH/STL (3 mumluk pivot), ITH/ITL (iki yanında daha düşük STH olan STH; dipl
 Her nokta ancak bilinebildiği mumdan itibaren kullanılır (geleceğe bakmaz). **LTL → daha yüksek ITL → boğa FVG** dizisini
 (ve LTH → daha düşük ITH → ayı FVG) H1'de bulur; giriş FVG'nin yakın kenarı, stop ITL/ITH, hedef henüz alınmamış karşı likidite.
 Her dizinin sonucunu da izler (hedef, stop, kaçtı, geçersiz). NQ=F, ES=F, BTC/ETH (Binance veya Yahoo) ve BIST; saatler Türkiye saati.
-Henüz yok: range/AMD filtresi ve alt zaman diliminde konfirmasyon.
+**Range / AMD (PO3) filtresi:** Son 24 mumda verimlilik oranı < 0.3 (fiyat çok yol gidip az ilerliyor), hacim normalin
+%80'inin altında (hacim yoksa ATR) ve iki kenar da en az ikişer kez test edilmişse piyasa **range**'dir; kutu dondurulur.
+Bir kenarın fitille ya da en fazla 3 mumluk kapanışla alınıp kutuya geri dönülmesi **manipulation**, ardından karşı kenarın
+üstünde/altında kapanış **distribution** (AMD tamamlandı). Manipülasyon sonrası okuma: geri dönüş kapanışından giriş, stop
+manipülasyon ucunda, hedef karşı kenar ve bir kutu boyu ötesi. `scan` her diziyi oluştuğu rejimle etiketler (`[range]`) ve
+sonuçları rejime göre ayırır; `--skip-range` range içindekileri gizler.
+
+```bash
+python3 day-trader/trader-structure/structure.py range NQ=F
+python3 day-trader/trader-structure/structure.py scan BTCUSDT --source binance --skip-range
+```
+
+Henüz yok: alt zaman diliminde konfirmasyon ve key levels (Monday/haftalık/aylık range).
 
 ```bash
 python3 day-trader/trader-structure/structure.py scan BTCUSDT --source binance
