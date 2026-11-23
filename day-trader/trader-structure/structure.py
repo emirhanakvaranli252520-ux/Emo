@@ -161,7 +161,9 @@ def parse_tv_csv(text, sym):
         try:
             o, h, l, c = (float(r[ix[k]]) for k in ("open", "high", "low", "close"))
         except ValueError:
-            continue                                  # a row with a gap (NaN) in the export
+            continue
+        if any(x != x for x in (o, h, l, c)):          # NaN: a row with a gap in the export
+            continue
         v = 0.0
         if vcol is not None and vcol < len(r):
             try:
