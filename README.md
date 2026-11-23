@@ -19,7 +19,7 @@ geliştirildi. 15 skill, `.claude/skills/` altından bu projede doğrudan `/trad
 python3 day-trader/trader-journal/journal.py snapshot   # planı ve Time Machine olasılıklarını sakla
 python3 day-trader/trader-journal/journal.py import     # dolumlar -> puanlanmış işlemler
 python3 day-trader/trader-journal/journal.py stats      # karne
-python3 -m unittest discover -s day-trader/tests        # 389 test, çevrimdışı
+python3 -m unittest discover -s day-trader/tests        # 391 test, çevrimdışı
 ```
 
 **Freqtrade'den uyarlanan fikirler** ([freqtrade/freqtrade](https://github.com/freqtrade/freqtrade), GPLv3: kod kopyalanmadı, yalnızca kavramlar sıfırdan yazıldı):
@@ -93,9 +93,13 @@ kapanışı, stop bölgedeki M5 dibi (isteğe bağlı ATR tamponu), hedef H1 hed
 üstünde 3.5R'de kâr alınır). Aynı bölgelerde **H1'den doğrudan girmek** ile **M5 CHoCH beklemek** karşılaştırılır. `--zone`
 ile kendi bölgenizi (key level, order block, range kenarı) izletebilirsiniz.
 
+Varsayılan zincir **1D bias → 1H bölge → 15m konfirmasyon**: her bölge o andaki günlük yapıyla (son iki günlük ITH/ITL,
+yoksa STH/STL; yalnızca kapanmış günlük mumlar) etiketlenir ve sonuçlar "bias ile aynı yönde" ve "karşı/belirsiz" diye ayrılır.
+
 ```bash
 python3 day-trader/trader-structure/structure.py confirm NQ=F
 python3 day-trader/trader-structure/structure.py confirm BTCUSDT --source binance --days 30
+python3 day-trader/trader-structure/structure.py confirm NQ=F --ltf 5m --bias-tf none   # eski H1 -> M5
 ```
 
 ```bash

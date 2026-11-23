@@ -68,7 +68,8 @@ python3 "${CLAUDE_SKILL_DIR}/structure.py" range NQ=F --range-window 36 --reclai
 python3 "${CLAUDE_SKILL_DIR}/structure.py" levels BTCUSDT --source binance          # opens, PDH/PWH/PMH, Monday range
 python3 "${CLAUDE_SKILL_DIR}/structure.py" levels NQ=F                              # CME calendar + NY midnight open
 python3 "${CLAUDE_SKILL_DIR}/structure.py" levels THYAO.IS --calendar bist
-python3 "${CLAUDE_SKILL_DIR}/structure.py" confirm NQ=F                             # H1 zones followed on M5 (Yahoo, 60 days)
+python3 "${CLAUDE_SKILL_DIR}/structure.py" confirm NQ=F                             # 1D bias -> H1 zones -> 15m CHoCH (Yahoo, 60 days)
+python3 "${CLAUDE_SKILL_DIR}/structure.py" confirm NQ=F --ltf 5m --bias-tf none       # H1 -> M5, no daily filter
 python3 "${CLAUDE_SKILL_DIR}/structure.py" confirm BTCUSDT --source binance --days 30
 python3 "${CLAUDE_SKILL_DIR}/structure.py" confirm ES=F --zone 6010-6018 --side long --stop 6000 --target 6060 --since "2026-11-24 16:30"
 ```
@@ -125,9 +126,17 @@ for them. `scan` treats them that way:
 
 ## Lower-timeframe confirmation
 
-`confirm` takes the lower-timeframe data (`--ltf`, default 5m), builds the H1
-bars from it (`--htf`), finds the LTL -> ITL -> FVG sequences there, and
-follows each one on M5 from the moment it became known:
+The user's day-trading chain is **1D bias -> 1H zone -> 15m confirmation**,
+and that is the default. `confirm` takes the lower-timeframe data (`--ltf`,
+default 15m; `--data-interval 5m` builds it from smaller bars), builds the H1
+bars from it (`--htf`), finds the LTL -> ITL -> FVG sequences there, tags
+each with the daily bias at that moment (`--bias-tf 1d`: the last two daily
+ITH / ITL, or STH / STL when there are not enough, from closed daily bars
+only; `none` switches it off), and follows each one on the lower timeframe
+from the moment it became known. The window defaults to three hours of
+bars and the hold to one day. The summary is split into sequences with the
+daily bias and against it (or unclear), so the user sees whether the filter
+helps. In the table below, "M5" means the lower timeframe:
 
 | step | rule |
 | --- | --- |

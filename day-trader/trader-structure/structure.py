@@ -1134,8 +1134,28 @@ def ltf_confirm(lb, side, zone_lo, zone_hi, htf_stop, target, start, piv=None, w
     return res
 
 
+def bias_at(dbars, t_utc, step=86400):
+    """The higher-timeframe bias at a moment, from the bars that had closed by then only:
+    the last two ITH and ITL (higher and higher = bullish, lower and lower = bearish), falling back to the
+    last two STH and STL when there are not enough intermediate points yet."""
+    seen = [b for b in dbars if b["t"] + step <= t_utc]
+    if len(seen) < 5:
+        return "unknown", "fewer than 5 closed bars"
+    t = tiers(seen)
+    for hi_k, lo_k in (("ITH", "ITL"), ("STH", "STL")):
+        ih, il = t[hi_k], t[lo_k]
+        if len(ih) >= 2 and len(il) >= 2:
+            hh, hl = ih[-1]["level"] > ih[-2]["level"], il[-1]["level"] > il[-2]["level"]
+            if hh and hl:
+                return "bullish", "%s higher, %s higher" % (hi_k, lo_k)
+            if not hh and not hl:
+                return "bearish", "%s lower, %s lower" % (hi_k, lo_k)
+            return "mixed", "%s %s, %s %s" % (hi_k, "higher" if hh else "lower", lo_k, "higher" if hl else "lower")
+    return "unknown", "not enough swings yet"
+
+
 def confirm_sequences(lbars, ltf, htf, now_utc, window=36, swing=2, hold=288, rr_band=(1.5, 3.5),
-                      fvg_window=24, buffer=0.0):
+                      fvg_window=24, buffer=0.0, bias_bars=None, bias_tf=None):
     """Every higher-timeframe LTL -> ITL -> FVG sequence (built from the same data), each followed on the
     lower timeframe; plus the comparison: entering at the HTF gap vs waiting for the LTF CHoCH."""
     lbars = closed_only(lbars, ltf, now_utc)
@@ -1172,7 +1192,12 @@ def confirm_sequences(lbars, ltf, htf, now_utc, window=36, swing=2, hold=288, rr
             band_r = bd["rr"]
         elif bd.get("result") == "stopped":
             band_r = -1.0
+        bias = why = None
+        if bias_bars is not None:
+            bias, why = bias_at(bias_bars, start_t, SECONDS[bias_tf])
         rows.append({"dir": s["dir"], "known_at": s["known_at"], "zone": [s["fvg"]["bottom"], s["fvg"]["top"]],
+                     "bias": bias, "bias_why": why,
+                     "aligned": None if bias is None else bias == s["dir"],
                      "htf_plan": {"entry": p["entry"], "stop": p["stop"], "target": p["target"],
                                   "rr": p["reward_risk"], "status": s["status"]},
                      "ltf": res, "htf_r": htf_r, "ltf_r": ltf_r, "band_r": band_r})
@@ -1182,8 +1207,8 @@ def confirm_sequences(lbars, ltf, htf, now_utc, window=36, swing=2, hold=288, rr
         if rr is not None:
             r["ltf"]["rr_band"] = "in band" if lo <= rr <= hi else ("under %.1f" % lo if rr < lo else "over %.1f" % hi)
 
-    def tally(key):
-        xs = [r[key] for r in rows if r[key] is not None]
+    def tally(key, only=None):
+        xs = [r[key] for r in rows if r[key] is not None and (only is None or r["aligned"] is only)]
         return {"trades": len(xs), "wins": sum(1 for x in xs if x > 0), "total_r": r2(sum(xs)),
                 "avg_r": r2(sum(xs) / len(xs)) if xs else None}
     conf = [r for r in rows if r["ltf"]["state"].startswith("confirmed")]
@@ -1202,6 +1227,15 @@ def confirm_sequences(lbars, ltf, htf, now_utc, window=36, swing=2, hold=288, rr
                     "confirmed": len(conf),
                     "no_choch": sum(1 for r in rows if r["ltf"]["state"] == "no CHoCH within the window"),
                     "invalidated": sum(1 for r in rows if r["ltf"]["state"].startswith("invalid"))},
+        "bias_tf": bias_tf,
+        "by_bias": None if bias_bars is None else {
+            "aligned": {"sequences": sum(1 for r in rows if r["aligned"] is True),
+                        "htf_entry": tally("htf_r", True), "ltf_confirmed": tally("ltf_r", True),
+                        "ltf_with_band": tally("band_r", True)},
+            "not_aligned": {"sequences": sum(1 for r in rows if r["aligned"] is False),
+                            "htf_entry": tally("htf_r", False), "ltf_confirmed": tally("ltf_r", False),
+                            "ltf_with_band": tally("band_r", False)},
+            "bias_now": bias_at(bias_bars, epoch(now_utc) + 1, SECONDS[bias_tf])[0]},
         "note": ("HTF entry = a limit at the gap with the stop at the ITL / ITH; LTF entry = the close of the "
                  "lower-timeframe CHoCH after a touch, stop at the low (high) made in the zone. R counts a target "
                  "as its planned R:R and a stop as -1; open trades are left out. A few dozen sequences prove "
@@ -1260,12 +1294,16 @@ def ltf_line(res):
 
 
 def render_confirm(doc):
-    out = ["%s -> %s confirmation, %s to %s (Turkey time), last close %.2f, R:R band %.1f-%.1f" % (
-        doc["htf"], doc["ltf"], doc["from"], doc["to"], doc["price"], doc["rr_band"][0], doc["rr_band"][1]), ""]
+    out = ["%s%s -> %s confirmation, %s to %s (Turkey time), last close %.2f, R:R band %.1f-%.1f" % (
+        ("%s bias -> " % doc["bias_tf"]) if doc.get("bias_tf") else "", doc["htf"], doc["ltf"], doc["from"], doc["to"],
+        doc["price"], doc["rr_band"][0], doc["rr_band"][1]), ""]
     if not doc["sequences"]:
         out.append("No HTF sequence in this data.")
     for r in doc["sequences"]:
         h = r["htf_plan"]
+        if r.get("bias"):
+            out.append("  %s bias %s (%s): %s" % (doc.get("bias_tf"), r["bias"], r["bias_why"],
+                                                  "ALIGNED" if r["aligned"] else "against / unclear"))
         out.append("  %-7s known %s zone %.2f-%.2f | HTF: entry %.2f stop %.2f target %.2f R:R %s -> %s" % (
             r["dir"], r["known_at"][5:], r["zone"][0], r["zone"][1], h["entry"], h["stop"], h["target"],
             "n/a" if h["rr"] is None else "%.2f" % h["rr"], h["status"]))
@@ -1283,6 +1321,16 @@ def render_confirm(doc):
                                                    doc["rr_band"][1]),
             "  touched %d, confirmed %d, no CHoCH %d, invalidated %d" % (
                 c["touched"], c["confirmed"], c["no_choch"], c["invalidated"])]
+    bb = doc.get("by_bias")
+    if bb:
+        out += ["", "Split by the %s bias (bias now: %s):" % (doc["bias_tf"], bb["bias_now"])]
+        for key, label in (("aligned", "with the bias"), ("not_aligned", "against / unclear")):
+            g = bb[key]
+            out.append("  %-18s %d sequence(s)" % (label, g["sequences"]))
+            for k2, l2 in (("htf_entry", "HTF entry"), ("ltf_confirmed", "LTF CHoCH"), ("ltf_with_band", "LTF + band")):
+                x = g[k2]
+                out.append("      %-10s %d trades, %d won, total %s R, avg %s R" % (l2, x["trades"], x["wins"],
+                                                                                  x["total_r"], x["avg_r"]))
     if doc["live"]:
         out += ["", "Live now:"]
         for r in doc["live"]:
@@ -1511,22 +1559,48 @@ def cmd_levels(a):
 
 
 def cmd_confirm(a):
-    a.interval = a.ltf
+    if a.ltf not in SECONDS or a.htf not in SECONDS:
+        raise StructureError("--ltf and --htf are one of %s" % ", ".join(SECONDS))
+    a.interval = a.data_interval or a.ltf
+    if a.interval != a.ltf:
+        a.resample = a.ltf                       # build the LTF bars from smaller data
     if a.source == "binance" and not a.offline and a.days is None:
         a.days = 30.0
     sym, bars, interval, now, _ = load(a)
+    per_hour = 3600.0 / SECONDS[a.ltf]
+    a.window = a.window or max(4, int(round(3 * per_hour)))          # three hours
+    a.hold = a.hold or int(round(24 * per_hour))                     # one day
     band = (a.rr_min, a.rr_max)
+    bias_bars = None
+    if a.bias_tf and a.bias_tf.lower() != "none":
+        if a.bias_tf not in SECONDS or SECONDS[a.bias_tf] <= SECONDS[a.htf]:
+            raise StructureError("--bias-tf must be a bigger bar than --htf (1d, 4h) or none")
+        if a.bias_offline:
+            _, _, bias_bars = parse_bars(read_text(a.bias_offline), sym)
+        elif a.offline:
+            bias_bars = resample(bars, a.bias_tf)                # from the same file: short history
+        elif a.source == "binance":
+            bias_bars = parse_bars(binance_pages(sym, BINANCE_INTERVAL[a.bias_tf], 400,
+                                                 epoch(now) * 1000 if a.at else None), sym)[2]
+        else:
+            bias_bars = parse_bars(http_get("https://query2.finance.yahoo.com/v8/finance/chart/%s?range=2y&interval=%s"
+                                            % (sym, "1d" if a.bias_tf == "1d" else "60m")), sym)[2]
+            if a.bias_tf != "1d":
+                bias_bars = resample(bias_bars, a.bias_tf)
+    else:
+        a.bias_tf = None
     if a.zone:
         m = re.match(r"^\s*([0-9.]+)\s*-\s*([0-9.]+)\s*$", a.zone)
         if not m or a.side is None or a.stop is None:
             raise StructureError("a manual zone needs --zone LOW-HIGH, --side long|short and --stop PRICE")
         lo, hi = sorted((float(m.group(1)), float(m.group(2))))
         since = parse_at(a.since) if a.since else now - datetime.timedelta(days=1)
-        doc = confirm_zone(bars, interval, now, a.side, lo, hi, a.stop, a.target, since, a.window, a.swing,
+        doc = confirm_zone(bars, a.ltf, now, a.side, lo, hi, a.stop, a.target, since, a.window, a.swing,
                            a.hold, band, a.buffer)
         out = render_confirm_zone(doc)
     else:
-        doc = confirm_sequences(bars, interval, a.htf, now, a.window, a.swing, a.hold, band, buffer=a.buffer)
+        doc = confirm_sequences(bars, a.ltf, a.htf, now, a.window, a.swing, a.hold, band, buffer=a.buffer,
+                                bias_bars=bias_bars, bias_tf=a.bias_tf)
         out = render_confirm(doc)
     doc["symbol"] = sym
     if a.write:
@@ -1573,12 +1647,15 @@ def build_parser():
     p = sub.add_parser("confirm", help="lower-timeframe confirmation: HTF zone touched, then an LTF CHoCH")
     common(p, "trader/confirm.json")
     p.set_defaults(interval=None)
-    p.add_argument("--ltf", default="5m", help="the confirmation timeframe, the data's bar size (default 5m)")
+    p.add_argument("--ltf", default="15m", help="the confirmation timeframe (default 15m)")
     p.add_argument("--htf", default="1h", help="the timeframe of the zones (default 1h, built from the LTF data)")
+    p.add_argument("--bias-tf", default="1d", help="the bias timeframe (default 1d; none to switch it off)")
+    p.add_argument("--bias-offline", help="a saved chart file for the bias timeframe (offline runs)")
+    p.add_argument("--data-interval", help="the bar size of the data when smaller than --ltf (e.g. 5m)")
     p.add_argument("--days", type=float, help="Binance: days of LTF history to fetch in pages (default 30)")
-    p.add_argument("--window", type=int, default=36, help="LTF bars after the touch to wait for the CHoCH (default 36)")
+    p.add_argument("--window", type=int, help="LTF bars after the touch to wait for the CHoCH (default: 3 hours)")
     p.add_argument("--swing", type=int, default=2, help="LTF swing size in bars each side (default 2)")
-    p.add_argument("--hold", type=int, default=288, help="LTF bars to follow a confirmed trade (default 288)")
+    p.add_argument("--hold", type=int, help="LTF bars to follow a confirmed trade (default: one day)")
     p.add_argument("--rr-min", type=float, default=1.5)
     p.add_argument("--rr-max", type=float, default=3.5)
     p.add_argument("--buffer", type=float, default=0.0,

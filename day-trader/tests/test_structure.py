@@ -401,7 +401,8 @@ class LowerTimeframe(unittest.TestCase):
     def test_sequences_on_real_data(self):
         out, err = io.StringIO(), io.StringIO()
         with redirect_stdout(out), redirect_stderr(err):
-            code = st.main(["confirm", "TSLA", "--offline", TSLA, "--at", "2026-10-19 17:15", "--json"])
+            code = st.main(["confirm", "TSLA", "--offline", TSLA, "--at", "2026-10-19 17:15", "--json",
+                            "--ltf", "5m", "--bias-tf", "none"])
         self.assertEqual(code, 0, err.getvalue())
         d = json.loads(out.getvalue())
         self.assertEqual((d["ltf"], d["htf"]), ("5m", "1h"))
@@ -417,8 +418,41 @@ class LowerTimeframe(unittest.TestCase):
                     self.assertGreater(l_["stop"], l_["entry"])
                 self.assertGreaterEqual(l_["at"], r["known_at"][:13])
         with redirect_stdout(io.StringIO()) as o, redirect_stderr(io.StringIO()):
-            code = st.main(["confirm", "TSLA", "--offline", TSLA, "--at", "2026-10-19 17:15",
+            code = st.main(["confirm", "TSLA", "--offline", TSLA, "--at", "2026-10-19 17:15", "--ltf", "5m",
                             "--zone", "355.4-356.4", "--side", "long", "--stop", "349", "--target", "370",
                             "--since", "2026-10-19 16:30"])
         self.assertEqual(code, 0)
         self.assertIn("zone 355.40-356.40", o.getvalue())
+
+
+class DailyBias(unittest.TestCase):
+    def test_bias_from_closed_daily_bars_only(self):
+        D = st.datetime.datetime
+        day0 = st.epoch(D(2026, 9, 1))
+        # rising zigzag: higher highs and higher lows, one bar a day
+        highs = [10, 12, 11, 14, 13, 16, 15, 18, 17, 20]
+        bars = [{"t": day0 + 86400 * k, "o": h - 1, "h": h, "l": h - 2, "c": h - 0.5} for k, h in enumerate(highs)]
+        self.assertEqual(st.bias_at(bars, day0 + 86400 * 10)[0], "bullish")
+        self.assertEqual(st.bias_at(bars, day0 + 86400 * 3)[0], "unknown")       # only 3 closed days
+        # a day still trading does not count
+        self.assertEqual(st.bias_at(bars, day0 + 86400 * 9 + 3600), st.bias_at(bars, day0 + 86400 * 9))
+        falling = [{"t": b["t"], "o": -b["o"], "h": -b["l"], "l": -b["h"], "c": -b["c"]} for b in bars]
+        self.assertEqual(st.bias_at(falling, day0 + 86400 * 10)[0], "bearish")
+
+    def test_day_15m_hour_chain_on_real_data(self):
+        out, err = io.StringIO(), io.StringIO()
+        with redirect_stdout(out), redirect_stderr(err):
+            code = st.main(["confirm", "TSLA", "--offline", TSLA, "--data-interval", "5m",
+                            "--at", "2026-10-19 17:15", "--json"])
+        self.assertEqual(code, 0, err.getvalue())
+        d = json.loads(out.getvalue())
+        self.assertEqual((d["bias_tf"], d["htf"], d["ltf"]), ("1d", "1h", "15m"))
+        bb = d["by_bias"]
+        self.assertEqual(bb["aligned"]["sequences"] + bb["not_aligned"]["sequences"], len(d["sequences"]))
+        for r in d["sequences"]:
+            self.assertIn(r["bias"], ("bullish", "bearish", "mixed", "unknown"))
+            self.assertEqual(r["aligned"], r["bias"] == r["dir"])
+        with redirect_stdout(io.StringIO()) as o, redirect_stderr(io.StringIO()):
+            st.main(["confirm", "TSLA", "--offline", TSLA, "--data-interval", "5m", "--at", "2026-10-19 17:15"])
+        self.assertIn("1d bias -> 1h -> 15m confirmation", o.getvalue())
+        self.assertIn("Split by the 1d bias", o.getvalue())

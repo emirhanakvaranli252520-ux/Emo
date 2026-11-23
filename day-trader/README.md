@@ -63,7 +63,7 @@ or in the `SEC_USER_AGENT` environment variable.
 | --- | --- | --- |
 | `/trader-scanner` | Chart Scanner | Scans thousands of charts for setups: opening-range breakouts, flags, oversold bounces. |
 | `/trader-smc` | Smart Money Levels | Maps BOS / CHoCH structure, fair value gaps, order blocks, equal highs and lows and the prior day's range, with no look-ahead, and hands a level to the entry timer and a stop to the exit planner. |
-| `/trader-structure` | Market Structure | Ranks swings into short, intermediate and long-term highs and lows (STH / ITH / LTH, STL / ITL / LTL) with no look-ahead, and finds LTL -> ITL -> FVG sequences on H1 for index futures, crypto (Binance) and BIST, in Turkey time. Its range / AMD filter spots low-volume ranges and follows each one through the raid of one edge and the break of the other, its key levels give the day / week / month opens, previous highs and lows (swept or accepted) and the Monday range, and its confirm mode follows each H1 zone on M5 to a CHoCH and compares that with entering at the zone. |
+| `/trader-structure` | Market Structure | Ranks swings into short, intermediate and long-term highs and lows (STH / ITH / LTH, STL / ITL / LTL) with no look-ahead, and finds LTL -> ITL -> FVG sequences on H1 for index futures, crypto (Binance) and BIST, in Turkey time. Its range / AMD filter spots low-volume ranges and follows each one through the raid of one edge and the break of the other, its key levels give the day / week / month opens, previous highs and lows (swept or accepted) and the Monday range, and its confirm mode runs the 1D bias -> 1H zone -> 15m CHoCH chain and compares that with entering at the zone, split by the daily bias. |
 | `/trader-elliott` | Elliott Wave | Lists every wave count that survives the hard rules, scores them on the guidelines, and gives a lean with an invalidation level only when they agree; replays its calls against the base rate. A tie-breaker, with a research reference on the evidence. |
 | `/trader-news` | News Monitor | Tracks breaking news on every stock you watch and flags what moves it. |
 | `/trader-entry` | Entry Timer | Watches a setup bar by bar and tells you the moment to get in. |
@@ -145,7 +145,7 @@ python3 trader-smc/smc.py levels TSLA                                   # struct
 python3 trader-structure/structure.py scan BTCUSDT --source binance       # ITH / LTH, LTL -> ITL -> FVG on H1
 python3 trader-structure/structure.py range NQ=F                           # range / AMD: raid, then distribution
 python3 trader-structure/structure.py levels BTCUSDT --source binance     # opens, PDH/PWH/PMH, Monday range
-python3 trader-structure/structure.py confirm NQ=F                         # H1 zone -> M5 CHoCH, entry, stop, R:R
+python3 trader-structure/structure.py confirm NQ=F                         # 1D bias -> H1 zone -> 15m CHoCH, entry, stop, R:R
 python3 trader-elliott/elliott.py count BTCUSDT --source binance          # wave counts, lean, invalidation
 python3 trader-news/news.py --tickers TSLA --hours 12                  # headlines, 8-Ks, today's move
 python3 trader-entry/entry.py check TSLA --setup orb                   # waiting / triggered / expired
