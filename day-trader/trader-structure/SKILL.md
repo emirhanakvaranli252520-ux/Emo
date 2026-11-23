@@ -14,12 +14,20 @@ description: >-
   volume under normal, both edges visited), flags sequences that formed
   inside a range, and follows each range box through power of three: the
   raid of one edge (manipulation) and the break of the other (distribution).
+  Its key levels give the day, week and month opens, the previous day, week
+  and month high, low and equilibrium (taken or not, swept or accepted), the
+  Monday range and which side of it went first, the New York midnight open
+  for CME futures, and where price sits in each range (premium or discount),
+  on the right calendar for crypto, CME futures, US stocks or BIST.
   Works on US index futures (NQ=F, ES=F), crypto majors (Binance BTCUSDT or
   Yahoo BTC-USD), stocks and BIST, on H1 by default, in Turkey time. Use when
   the user says "market structure", "ITH", "ITL", "LTH", "LTL", "STH", "STL",
   "intermediate term high", "long term low", "yapı", "piyasa yapısı",
   "LTL'den sonra ITL", "H1 yapı", "range", "AMD", "PO3", "power of three",
-  "manipulation", "yatay piyasa", "range piyasası", "likidite avı", or wants the structure on NQ, ES, BTC, ETH
+  "manipulation", "yatay piyasa", "range piyasası", "likidite avı", "key levels",
+  "Monday range", "weekly range", "monthly range", "weekly open", "monthly
+  open", "PWH", "PWL", "PDH", "midnight open", "premium discount", "açılış
+  seviyesi", "haftalık range", "aylık range", or wants the structure on NQ, ES, BTC, ETH
   or a BIST stock.
 argument-hint: "SYMBOL [--source yahoo|binance] [--interval 1h|4h|1d] [--at TIME]"
 ---
@@ -48,6 +56,9 @@ python3 "${CLAUDE_SKILL_DIR}/structure.py" scan BTCUSDT --source binance --json 
 python3 "${CLAUDE_SKILL_DIR}/structure.py" scan NQ=F --skip-range                   # hide sequences formed inside a range
 python3 "${CLAUDE_SKILL_DIR}/structure.py" range BTCUSDT --source binance           # range / AMD: is it ranging, was an edge raided
 python3 "${CLAUDE_SKILL_DIR}/structure.py" range NQ=F --range-window 36 --reclaim 2
+python3 "${CLAUDE_SKILL_DIR}/structure.py" levels BTCUSDT --source binance          # opens, PDH/PWH/PMH, Monday range
+python3 "${CLAUDE_SKILL_DIR}/structure.py" levels NQ=F                              # CME calendar + NY midnight open
+python3 "${CLAUDE_SKILL_DIR}/structure.py" levels THYAO.IS --calendar bist
 ```
 
 Other flags: `--window 24` (bars after the ITL / ITH in which the FVG must
@@ -96,6 +107,42 @@ box) and splits its record by regime.
 | other endings | breakout (stayed outside `--reclaim` bars with no raid first), failed (closed beyond the raid's extreme: a real move), faded (nothing in 5 windows) |
 | AMD read | after a raid of the low: long from the reclaim close, stop at the raid's low, first target the box high, second one box height above it (mirror after a raid of the high) |
 
+## Key levels
+
+`levels` lists every level above and below the last close, nearest first,
+with its distance:
+
+| code | level |
+| --- | --- |
+| DO, WO, MO | the day, week and month open (first bar of the period) |
+| PDH / PDL / PDEQ | previous day high, low, and their midpoint |
+| PWH / PWL / PWEQ | previous week high, low, midpoint |
+| PMH / PML / PMEQ | previous month high, low, midpoint |
+| MH / ML / MEQ | this week's Monday high, low, midpoint ("forming" while Monday trades) |
+| MNO | New York midnight open, CME futures only (ICT's true day open) |
+
+For each previous high and low, and for the Monday high and low, it says
+whether price has traded through it since, when, and how: **swept** (no
+close beyond, or back on the near side within `--reclaim` bars) or
+**accepted** (still closed beyond it `--reclaim` - 1 bars later). For the
+Monday range it says which side went first. It also places the price in the
+previous week's, previous month's and Monday's range: above 50 % premium,
+under 50 % discount, or outside the range.
+
+Calendars (picked from the symbol, or `--calendar`):
+
+| calendar | day | week | used for |
+| --- | --- | --- | --- |
+| crypto | 00:00 UTC (03:00 Turkey) | Monday 00:00 UTC | `BTCUSDT`, `BTC-USD` |
+| cme | 18:00 New York the evening before | Sunday 18:00 New York | `NQ=F`, `ES=F` |
+| stock | New York calendar day | Monday | US stocks, `^NDX` |
+| bist | Istanbul calendar day | Monday | `.IS` |
+
+When the data starts inside a period, its open is not given and the
+previous period's high and low are flagged partial. Binance's 1000-bar cap
+on H1 is about 41 days, so the previous month can be partial early in a
+month: say so.
+
 Only closed bars are read. A setup's status is followed bar by bar after it
 became known; a bar that touches both stop and target counts as stopped.
 
@@ -112,6 +159,9 @@ became known; a bar that touches both stop and target counts as stopped.
    if an edge was raided, give the AMD read with its R:R, and say the user
    waits for their own confirmation. A `[range]` sequence is not the trade:
    the raid is. Lower-timeframe confirmation is not built yet: say so.
+6. For key levels, lead with where price sits (premium or discount of the
+   previous week and the Monday range) and the nearest level above and
+   below, then any level taken today and whether it was swept or accepted.
 6. To take one: the user confirms on the lower timeframe, then the stop and
    size go through `/trader-budget` and `/trader-risk`, and the trade is
    logged in `/trader-journal` with the tag `ith-ltl` so its record builds up.
@@ -123,6 +173,7 @@ became known; a bar that touches both stop and target counts as stopped.
 | Yahoo chart API, Binance klines API | the bars, free (Binance's public market data needs no key) |
 | `trader/structure.json` | `scan --write`: the points, the bias, the regime, the sequences and their record |
 | `trader/range.json` | `range --write`: the regime now, the range boxes, their raids and outcomes |
+| `trader/levels.json` | `levels --write`: the key levels, the Monday range and the premium / discount read |
 
 ## Rules
 

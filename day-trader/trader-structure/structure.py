@@ -630,6 +630,276 @@ def box_at(boxes, i):
     return None
 
 
+# ---------------------------------------------------------------- key levels
+
+def _nth_sunday(year, month, n):
+    d = datetime.date(year, month, 1)
+    d += datetime.timedelta(days=(6 - d.weekday()) % 7)
+    return d + datetime.timedelta(weeks=n - 1)
+
+
+def ny_offset(utc):
+    """-4 in US daylight time, -5 otherwise (second Sunday of March to first Sunday of November)."""
+    y = utc.year
+    start = datetime.datetime.combine(_nth_sunday(y, 3, 2), datetime.time(7, 0))
+    end = datetime.datetime.combine(_nth_sunday(y, 11, 1), datetime.time(6, 0))
+    return -4 if start <= utc < end else -5
+
+
+def to_ny(ts):
+    utc = EPOCH + datetime.timedelta(seconds=int(ts))
+    return utc + datetime.timedelta(hours=ny_offset(utc))
+
+
+CALENDARS = {
+    "crypto": "24/7: the day starts 00:00 UTC (03:00 Turkey), the week on Monday 00:00 UTC",
+    "cme": "CME futures: the trading day starts 18:00 New York the evening before, the week on Sunday 18:00",
+    "stock": "US stocks: New York calendar days",
+    "bist": "Borsa Istanbul: Istanbul calendar days",
+}
+
+
+def guess_calendar(sym):
+    if sym.endswith("USDT") or sym.endswith("-USD") or sym.endswith("USDC") or sym.endswith("BUSD"):
+        return "crypto"
+    if sym.endswith("=F"):
+        return "cme"
+    if sym.endswith(".IS"):
+        return "bist"
+    return "stock"
+
+
+def trading_day(ts, cal):
+    """The trading day a bar belongs to under that calendar."""
+    if cal == "crypto":
+        return (EPOCH + datetime.timedelta(seconds=int(ts))).date()
+    if cal == "bist":
+        return (EPOCH + datetime.timedelta(seconds=int(ts)) + TR).date()
+    ny = to_ny(ts)
+    if cal == "cme" and ny.time() >= datetime.time(18, 0):
+        return ny.date() + datetime.timedelta(days=1)
+    return ny.date()
+
+
+def period_key(day, kind):
+    if kind == "day":
+        return day.isoformat()
+    if kind == "week":
+        y, w, _ = day.isocalendar()
+        return "%d-W%02d" % (y, w)
+    return "%d-%02d" % (day.year, day.month)
+
+
+def periods(bars, cal):
+    """{kind: [(key, {open, high, low, close, first, last, hi_i, lo_i, monday...})]} in time order."""
+    out = {"day": [], "week": [], "month": []}
+    for i, b in enumerate(bars):
+        d = trading_day(b["t"], cal)
+        for kind in out:
+            k = period_key(d, kind)
+            lst = out[kind]
+            if not lst or lst[-1][0] != k:
+                lst.append((k, {"open": b["o"], "high": b["h"], "low": b["l"], "close": b["c"], "first": i,
+                                "last": i, "hi_i": i, "lo_i": i, "start_day": d}))
+            else:
+                p = lst[-1][1]
+                if b["h"] > p["high"]:
+                    p["high"], p["hi_i"] = b["h"], i
+                if b["l"] < p["low"]:
+                    p["low"], p["lo_i"] = b["l"], i
+                p["close"], p["last"] = b["c"], i
+    return out
+
+
+def first_take(bars, level, start, end, above, reclaim=3):
+    """The first bar in [start, end] that trades through `level`, and whether price was accepted
+    beyond it (the close `reclaim` - 1 bars later is still beyond) or it was a sweep (no close beyond,
+    or back on the near side by then)."""
+    for j in range(start, end + 1):
+        b = bars[j]
+        if (b["h"] > level) if above else (b["l"] < level):
+            closes = [bars[k]["c"] for k in range(j, min(end, j + reclaim - 1) + 1)]
+            beyond = [(c > level) if above else (c < level) for c in closes]
+            if not any(beyond):
+                how = "swept (wick through, closed back)"
+            elif beyond[-1] and len(closes) == reclaim:
+                how = "accepted beyond (still past it %d bars later)" % (reclaim - 1)
+            elif beyond[-1]:
+                how = "closing beyond so far"
+            else:
+                how = "swept (closed past it, came back within %d bars)" % reclaim
+            return {"at": tr_time(b["t"]), "how": how, "i": j}
+    return None
+
+
+def key_levels(sym, bars, interval, now_utc, cal=None, resampled=False, reclaim=3):
+    bars = closed_only(bars, interval, now_utc, resampled)
+    if len(bars) < 10:
+        raise StructureError("only %d closed bar(s) of %s by then" % (len(bars), sym))
+    if SECONDS[interval] > 3600 * 4:
+        raise StructureError("key levels need intraday bars (1h or smaller) to find opens and the Monday range")
+    cal = cal or guess_calendar(sym)
+    if cal not in CALENDARS:
+        raise StructureError("--calendar is one of %s" % ", ".join(CALENDARS))
+    per = periods(bars, cal)
+    n = len(bars) - 1
+    price = bars[-1]["c"]
+    levels, notes = [], []
+
+    def complete(kind, idx):
+        """A period is whole only if the data starts before it (else the first one is cut)."""
+        return idx > 0
+
+    def add(name, code, value, since=None, extra=None):
+        if value is None:
+            return
+        d = {"name": name, "code": code, "level": r2(value), "distance_pct": r2(100.0 * (value / price - 1))}
+        if since:
+            d["since"] = since
+        if extra:
+            d.update(extra)
+        levels.append(d)
+
+    def range_levels(kind, label, code):
+        lst = per[kind]
+        cur_i = len(lst) - 1
+        key, cur = lst[cur_i]
+        if complete(kind, cur_i):
+            add("%s open" % label, code + "O", cur["open"], tr_time(bars[cur["first"]]["t"]))
+        else:
+            notes.append("the data starts inside this %s, so its open is unknown" % kind)
+        if cur_i >= 1:
+            pkey, prev = lst[cur_i - 1]
+            if not complete(kind, cur_i - 1):
+                notes.append("the previous %s (%s) is only partly in the data: its high and low are a "
+                             "lower bound; fetch more history" % (kind, pkey))
+            mid = (prev["high"] + prev["low"]) / 2
+            for nm, cd, val, above in (("previous %s high" % label, "P" + code + "H", prev["high"], True),
+                                       ("previous %s low" % label, "P" + code + "L", prev["low"], False)):
+                take = first_take(bars, val, cur["first"], n, above, reclaim)
+                add(nm, cd, val, pkey, {"taken": take and {"at": take["at"], "how": take["how"]},
+                                        "partial": not complete(kind, cur_i - 1)})
+            add("previous %s equilibrium" % label, "P" + code + "EQ", mid, pkey)
+            return {"key": key, "prev_key": pkey, "prev_high": r2(prev["high"]), "prev_low": r2(prev["low"]),
+                    "position_pct": r2(100.0 * (price - prev["low"]) / (prev["high"] - prev["low"]))
+                    if prev["high"] > prev["low"] else None,
+                    "high_so_far": r2(cur["high"]), "low_so_far": r2(cur["low"])}
+        return {"key": key}
+
+    day = range_levels("day", "day", "D")
+    week = range_levels("week", "week", "W")
+    month = range_levels("month", "month", "M")
+
+    if cal == "cme":
+        # ICT's midnight open: the first bar at or after 00:00 New York of the current trading day
+        cur = per["day"][-1][1]
+        for j in range(cur["first"], n + 1):
+            ny = to_ny(bars[j]["t"])
+            if ny.time() >= datetime.time(0, 0) and ny.date() == per["day"][-1][1]["start_day"]:
+                add("New York midnight open", "MNO", bars[j]["o"], tr_time(bars[j]["t"]))
+                break
+
+    # Monday range: the first trading day of the current week, if it is in the data
+    mon = None
+    wk_first = per["week"][-1][1]["first"]
+    days_this_week = [(k, p) for k, p in per["day"] if p["first"] >= wk_first]
+    if days_this_week and days_this_week[0][1]["start_day"].weekday() == 0:
+        mk, m = days_this_week[0]
+        whole_week_in_data = len(per["week"]) > 1
+        forming = len(days_this_week) == 1
+        mon = {"day": mk, "high": r2(m["high"]), "low": r2(m["low"]), "eq": r2((m["high"] + m["low"]) / 2),
+               "forming": forming, "complete": whole_week_in_data}
+        if not forming:
+            after = m["last"] + 1
+            hi_take = first_take(bars, m["high"], after, n, True, reclaim)
+            lo_take = first_take(bars, m["low"], after, n, False, reclaim)
+            mon["high_taken"] = hi_take and {"at": hi_take["at"], "how": hi_take["how"]}
+            mon["low_taken"] = lo_take and {"at": lo_take["at"], "how": lo_take["how"]}
+            first = min([t for t in (hi_take, lo_take) if t], key=lambda t: t["i"], default=None)
+            if first:
+                mon["first_side_taken"] = "high" if first is hi_take else "low"
+            mon["position_pct"] = r2(100.0 * (price - m["low"]) / (m["high"] - m["low"])) \
+                if m["high"] > m["low"] else None
+        add("Monday high", "MH", m["high"], mk, {"forming": forming})
+        add("Monday low", "ML", m["low"], mk, {"forming": forming})
+        add("Monday equilibrium", "MEQ", (m["high"] + m["low"]) / 2, mk, {"forming": forming})
+    elif days_this_week:
+        notes.append("the week's first trading day in the data is not a Monday (a holiday, or the data starts "
+                     "mid-week): no Monday range")
+
+    above = sorted([l for l in levels if l["level"] > price], key=lambda l: l["level"])
+    below = sorted([l for l in levels if l["level"] <= price], key=lambda l: -l["level"])
+    return {
+        "created_by": "trader-structure", "mode": "levels", "symbol": sym, "interval": interval,
+        "calendar": cal, "calendar_rule": CALENDARS[cal], "last_bar": tr_time(bars[-1]["t"]),
+        "price": r2(price), "timezone": "Turkey (UTC+3)",
+        "day": day, "week": week, "month": month, "monday": mon,
+        "above": above, "below": below, "notes": notes,
+        "note": ("Key levels are where price has reacted before and where stops collect; they are places to "
+                 "watch, not signals and not financial advice. Prop-firm CFD prices can differ a little from "
+                 "this feed."),
+    }
+
+
+def render_levels(doc):
+    out = ["%s  key levels  (%s bars, last bar %s Turkey time)" % (doc["symbol"], doc["interval"], doc["last_bar"]),
+           "Calendar: %s" % doc["calendar_rule"], "Last close %.2f" % doc["price"], ""]
+
+    def pos(x):
+        if x is None:
+            return ""
+        if x < 0:
+            return "below the range (%.0f %% of its height under the low)" % -x
+        if x > 100:
+            return "above the range (%.0f %% of its height over the high)" % (x - 100)
+        zone = "premium" if x > 50 else "discount" if x < 50 else "equilibrium"
+        return "%.0f %% of the range (%s)" % (x, zone)
+
+    w, m = doc["week"], doc["month"]
+    if w.get("prev_high") is not None:
+        out.append("Previous week %s: %.2f-%.2f, price at %s" % (w["prev_key"], w["prev_low"], w["prev_high"],
+                                                               pos(w["position_pct"])))
+    if m.get("prev_high") is not None:
+        out.append("Previous month %s: %.2f-%.2f, price at %s" % (m["prev_key"], m["prev_low"], m["prev_high"],
+                                                                pos(m["position_pct"])))
+    mo = doc["monday"]
+    if mo:
+        line = "Monday %s range %.2f-%.2f (EQ %.2f)" % (mo["day"], mo["low"], mo["high"], mo["eq"])
+        if mo["forming"]:
+            line += ", still forming"
+        else:
+            line += ", price at %s" % pos(mo.get("position_pct"))
+        out.append(line)
+        for side in ("high", "low"):
+            t = mo.get(side + "_taken")
+            if t:
+                out.append("  Monday %s taken %s: %s" % (side, t["at"][5:], t["how"]))
+            elif not mo["forming"]:
+                out.append("  Monday %s not taken yet" % side)
+        if mo.get("first_side_taken"):
+            out.append("  first side taken: the %s" % mo["first_side_taken"])
+    out += ["", "Above (nearest first)"]
+
+    def row(l):
+        extra = []
+        if l.get("taken"):
+            extra.append("taken %s, %s" % (l["taken"]["at"][5:], l["taken"]["how"].split(" (")[0]))
+        if l.get("partial"):
+            extra.append("partial data")
+        if l.get("forming"):
+            extra.append("forming")
+        return "  %-5s %-28s %10.2f  %+6.2f%%  %s" % (l["code"], l["name"], l["level"], l["distance_pct"],
+                                                       "; ".join(extra))
+
+    out += [row(l) for l in doc["above"]] or ["  none"]
+    out += ["  ----- %.2f last close -----" % doc["price"], "Below (nearest first)"]
+    out += [row(l) for l in doc["below"]] or ["  none"]
+    for n_ in doc["notes"]:
+        out.append("Note: " + n_)
+    out += ["", doc["note"]]
+    return "\n".join(out)
+
+
 # ---------------------------------------------------------------- output
 
 def render(doc):
@@ -755,7 +1025,7 @@ def load(a):
     elif a.source == "binance":
         end = "&endTime=%d" % (epoch(now) * 1000) if a.at else ""
         text = http_get("https://api.binance.com/api/v3/klines?symbol=%s&interval=%s&limit=%d%s"
-                        % (sym, BINANCE_INTERVAL[interval], a.limit, end))
+                        % (sym, BINANCE_INTERVAL[interval], a.limit or (1000 if a.cmd == "levels" else 720), end))
     else:
         fetch = a.fetch_interval or ("60m" if interval == "1h" else interval)
         text = http_get("https://query2.finance.yahoo.com/v8/finance/chart/%s?range=%s&interval=%s"
@@ -799,6 +1069,14 @@ def cmd_range(a):
     return json.dumps(doc, indent=2) if a.json else render_range(doc)
 
 
+def cmd_levels(a):
+    sym, bars, interval, now, resampled = load(a)
+    doc = key_levels(sym, bars, interval, now, a.calendar, resampled, a.reclaim)
+    if a.write:
+        write_json(a.write, doc)
+    return json.dumps(doc, indent=2) if a.json else render_levels(doc)
+
+
 def build_parser():
     ap = argparse.ArgumentParser(description="Advanced market structure: STH/ITH/LTH, STL/ITL/LTL and the "
                                              "LTL -> ITL -> FVG sequence.")
@@ -809,7 +1087,7 @@ def build_parser():
         p.add_argument("--interval", default="1h", help="1h (default), 4h, 1d, 15m, 5m ...")
         p.add_argument("--range", help="Yahoo range (default 60d intraday, 2y daily)")
         p.add_argument("--fetch-interval", help="Yahoo bar size to download (default: --interval)")
-        p.add_argument("--limit", type=int, default=720, help="Binance bars to fetch (default 720, max 1000)")
+        p.add_argument("--limit", type=int, help="Binance bars to fetch (default 720; 1000 for levels; max 1000)")
         p.add_argument("--resample", help="build bigger bars from the data first, e.g. 5m data -> 1h")
         p.add_argument("--range-window", type=int, default=24,
                        help="bars the range filter looks at (default 24; its long average uses 5x that)")
@@ -832,6 +1110,14 @@ def build_parser():
     p.add_argument("--reclaim", type=int, default=3,
                    help="bars a close outside the box may last and still count as a raid (default 3)")
     p.set_defaults(fn=cmd_range)
+
+    p = sub.add_parser("levels", help="key levels: day / week / month opens and ranges, the Monday range")
+    common(p, "trader/levels.json")
+    p.add_argument("--calendar", choices=sorted(CALENDARS),
+                   help="period rules (default from the symbol: USDT / -USD crypto, =F cme, .IS bist, else stock)")
+    p.add_argument("--reclaim", type=int, default=3,
+                   help="bars a close beyond a level must hold to count as accepted, not swept (default 3)")
+    p.set_defaults(fn=cmd_levels)
     return ap
 
 
@@ -841,7 +1127,7 @@ def main(argv=None):
     if not getattr(a, "fn", None):
         ap.print_help()
         return 2
-    if getattr(a, "limit", 1) < 1 or getattr(a, "limit", 1) > 1000:
+    if getattr(a, "limit", None) is not None and not 1 <= a.limit <= 1000:
         print("structure: --limit must be between 1 and 1000", file=sys.stderr)
         return 1
     try:

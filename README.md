@@ -19,7 +19,7 @@ geliştirildi. 14 skill, `.claude/skills/` altından bu projede doğrudan `/trad
 python3 day-trader/trader-journal/journal.py snapshot   # planı ve Time Machine olasılıklarını sakla
 python3 day-trader/trader-journal/journal.py import     # dolumlar -> puanlanmış işlemler
 python3 day-trader/trader-journal/journal.py stats      # karne
-python3 -m unittest discover -s day-trader/tests        # 364 test, çevrimdışı
+python3 -m unittest discover -s day-trader/tests        # 368 test, çevrimdışı
 ```
 
 **Freqtrade'den uyarlanan fikirler** ([freqtrade/freqtrade](https://github.com/freqtrade/freqtrade), GPLv3: kod kopyalanmadı, yalnızca kavramlar sıfırdan yazıldı):
@@ -55,7 +55,18 @@ python3 day-trader/trader-structure/structure.py range NQ=F
 python3 day-trader/trader-structure/structure.py scan BTCUSDT --source binance --skip-range
 ```
 
-Henüz yok: alt zaman diliminde konfirmasyon ve key levels (Monday/haftalık/aylık range).
+**Key levels:** gün/hafta/ay açılışları (DO/WO/MO), önceki gün/hafta/ayın tepe-dip-orta seviyesi (PDH/PDL/PDEQ,
+PWH/PWL/PWEQ, PMH/PML/PMEQ), Monday range (MH/ML/MEQ) ve NQ/ES için New York gece yarısı açılışı (MNO). Her tepe/dip
+için alınıp alınmadığı, ne zaman ve nasıl (süpürüldü mü, kabul mü gördü), Monday range'de önce hangi tarafın alındığı ve
+fiyatın bu range'lerde premium mu discount mu olduğu. Periyot sınırları piyasaya göre: kripto 00:00 UTC (TR 03:00) ve
+Pazartesi, CME vadelileri New York 18:00 ve Pazar akşamı, ABD hisseleri New York günü, BIST İstanbul günü.
+
+```bash
+python3 day-trader/trader-structure/structure.py levels BTCUSDT --source binance
+python3 day-trader/trader-structure/structure.py levels NQ=F
+```
+
+Henüz yok: alt zaman diliminde konfirmasyon.
 
 ```bash
 python3 day-trader/trader-structure/structure.py scan BTCUSDT --source binance

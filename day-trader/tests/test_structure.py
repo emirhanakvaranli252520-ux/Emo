@@ -222,3 +222,71 @@ class RangeAMD(unittest.TestCase):
         scan = json.loads(o2.getvalue())
         self.assertIn("by_regime", scan)
         self.assertIn(scan["regime_now"]["state"], ("range", "trend", "mixed"))
+
+
+def hourly(start_utc, rows):
+    """rows of (o, h, l, c) one hour apart from a naive-UTC datetime."""
+    t0 = st.epoch(start_utc)
+    return [{"t": t0 + 3600 * k, "o": o, "h": h, "l": l, "c": c, "v": 1} for k, (o, h, l, c) in enumerate(rows)]
+
+
+class KeyLevels(unittest.TestCase):
+    def test_calendars(self):
+        self.assertEqual([st.guess_calendar(s) for s in ("BTCUSDT", "ETH-USD", "NQ=F", "THYAO.IS", "TSLA")],
+                         ["crypto", "crypto", "cme", "bist", "stock"])
+        D = st.datetime.datetime
+        # Sunday 23:30 UTC = 19:30 New York (EDT): CME's Monday session; crypto's Sunday
+        ts = st.epoch(D(2026, 10, 18, 23, 30))
+        self.assertEqual(st.trading_day(ts, "cme"), st.datetime.date(2026, 10, 19))
+        self.assertEqual(st.trading_day(ts, "crypto"), st.datetime.date(2026, 10, 18))
+        # 22:00 UTC = 01:00 Istanbul the next day
+        self.assertEqual(st.trading_day(st.epoch(D(2026, 10, 19, 22, 0)), "bist"), st.datetime.date(2026, 10, 20))
+
+    def test_crypto_week_monday_and_prior_levels(self):
+        D = st.datetime.datetime
+        # Sun Oct 18 00:00 UTC .. : 24 h of Sunday, 24 h of Monday, 6 h of Tuesday
+        rows = [(100, 101, 99, 100)] * 24
+        rows += [(102.5, 105, 102, 104)] + [(104, 104.5, 102, 103)] * 23          # Monday 102-105
+        rows += [(103, 103.5, 101.5, 102)] + [(102, 102.5, 100.5, 101)] * 2     # Tuesday takes the low, stays under
+        rows += [(101, 106, 100.8, 104.6)] + [(104.6, 105.2, 104, 104.8)] * 2   # wick over the high, closes back
+        bars = hourly(D(2026, 10, 18), rows)
+        d = st.key_levels("BTCUSDT", bars, "1h", D(2026, 10, 20, 6, 0))
+        self.assertEqual(d["calendar"], "crypto")
+        mo = d["monday"]
+        self.assertEqual((mo["day"], mo["low"], mo["high"], mo["forming"]), ("2026-10-19", 102, 105, False))
+        self.assertTrue(mo["low_taken"]["how"].startswith("accepted"))
+        self.assertTrue(mo["high_taken"]["how"].startswith("swept"))
+        self.assertEqual(mo["first_side_taken"], "low")
+        codes = {l["code"]: l for l in d["above"] + d["below"]}
+        self.assertEqual(codes["PDH"]["level"], 105)        # Monday was the previous day
+        self.assertEqual(codes["DO"]["level"], 103)
+        self.assertEqual(codes["PWH"]["level"], 101)        # the week before held only Sunday
+        self.assertTrue(codes["PWH"]["partial"])
+        self.assertTrue(any("partly in the data" in n for n in d["notes"]))
+
+    def test_cme_midnight_open_and_week(self):
+        D = st.datetime.datetime
+        # Sunday 22:00 UTC (18:00 NY) through Monday 06:00 UTC (02:00 NY)
+        rows = [(200 + k, 201 + k, 199 + k, 200.5 + k) for k in range(12)]
+        bars = hourly(D(2026, 10, 18, 22), rows)
+        d = st.key_levels("NQ=F", bars, "1h", D(2026, 10, 19, 10))
+        codes = {l["code"]: l for l in d["above"] + d["below"]}
+        self.assertEqual(codes["MNO"]["level"], 206)        # the 7th bar, 04:00 UTC, is 00:00 New York
+        self.assertEqual(d["monday"]["day"], "2026-10-19")
+        self.assertTrue(d["monday"]["forming"])
+
+    def test_on_real_data(self):
+        out, err = io.StringIO(), io.StringIO()
+        with redirect_stdout(out), redirect_stderr(err):
+            code = st.main(["levels", "TSLA", "--offline", TSLA, "--interval", "5m", "--resample", "1h",
+                            "--at", "2026-10-16 23:30", "--json"])
+        self.assertEqual(code, 0, err.getvalue())
+        d = json.loads(out.getvalue())
+        self.assertEqual((d["monday"]["low"], d["monday"]["high"]), (377.58, 382.61))
+        self.assertEqual(d["monday"]["first_side_taken"], "low")
+        self.assertEqual(d["week"]["prev_key"], "2026-W41")
+        self.assertTrue(all(l["level"] > d["price"] for l in d["above"]))
+        with redirect_stdout(io.StringIO()) as o, redirect_stderr(io.StringIO()):
+            st.main(["levels", "TSLA", "--offline", TSLA, "--interval", "5m", "--resample", "1h",
+                     "--at", "2026-10-16 23:30"])
+        self.assertIn("below the range", o.getvalue())
