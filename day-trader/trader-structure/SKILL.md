@@ -68,7 +68,8 @@ python3 "${CLAUDE_SKILL_DIR}/structure.py" range NQ=F --range-window 36 --reclai
 python3 "${CLAUDE_SKILL_DIR}/structure.py" levels BTCUSDT --source binance          # opens, PDH/PWH/PMH, Monday range
 python3 "${CLAUDE_SKILL_DIR}/structure.py" levels NQ=F                              # CME calendar + NY midnight open
 python3 "${CLAUDE_SKILL_DIR}/structure.py" levels THYAO.IS --calendar bist
-python3 "${CLAUDE_SKILL_DIR}/structure.py" confirm NQ=F                             # 1D bias -> H1 zones -> 15m CHoCH (Yahoo, 60 days)
+python3 "${CLAUDE_SKILL_DIR}/structure.py" confirm NQ=F                             # 1D bias -> H1 zones -> 15m ITL / ITH (Yahoo, 60 days)
+python3 "${CLAUDE_SKILL_DIR}/structure.py" confirm NQ=F --mode choch                # the CHoCH variant, for comparison
 python3 "${CLAUDE_SKILL_DIR}/structure.py" confirm NQ=F --ltf 5m --bias-tf none       # H1 -> M5, no daily filter
 python3 "${CLAUDE_SKILL_DIR}/structure.py" confirm BTCUSDT --source binance --days 30
 python3 "${CLAUDE_SKILL_DIR}/structure.py" confirm ES=F --zone 6010-6018 --side long --stop 6000 --target 6060 --since "2026-11-24 16:30"
@@ -134,13 +135,15 @@ each with the daily bias at that moment (`--bias-tf 1d`: the last two daily
 ITH / ITL, or STH / STL when there are not enough, from closed daily bars
 only; `none` switches it off), and follows each one on the lower timeframe
 from the moment it became known. The window defaults to three hours of
-bars and the hold to one day. The summary is split into sequences with the
+bars for a CHoCH, twelve hours for an ITL, and the hold to one day. The summary is split into sequences with the
 daily bias and against it (or unclear), so the user sees whether the filter
 helps. In the table below, "M5" means the lower timeframe:
 
 | step | rule |
 | --- | --- |
-| touch | the first M5 bar that reaches the H1 gap (a long: a low at or under its top) |
+| mode | **itl (default, the user's way):** after the touch, the first LTF ITL (long) / ITH (short) whose low (high) formed at or after the touch; it confirms when it becomes known (its right-hand STL / STH is confirmed); entry at that bar's close, stop at the ITL low. **choch:** the CHoCH below. The user does not use CHoCH: use itl unless asked |
+| range | sequences that formed inside an H1 range box are left out of the comparison (the user's rule is for trending markets); `--include-range` keeps them |
+| touch | the first M5 bar that reaches the H1 gap (a long: a low at or under its top); if price reaches the H1 target first, the setup is missed and not watched further |
 | invalidation | an M5 close through the H1 stop (the ITL / ITH) before or after the touch |
 | CHoCH | after the touch, an M5 close through the last M5 swing high (`--swing` bars each side) that came before the low made in the zone, within `--window` bars (36 = 3 hours on M5); mirror for shorts |
 | plan | entry at the CHoCH close; stop at the low made in the zone (plus `--buffer` x M5 ATR, since that low is itself short-term liquidity); target the H1 target; displacement noted (a CHoCH body over one ATR, or an M5 FVG in the move, also given as a limit-entry zone) |

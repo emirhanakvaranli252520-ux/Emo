@@ -1052,19 +1052,48 @@ def ltf_atr(lb, n=14):
     return out
 
 
+def _finish(res, lb, j, entry, stop, target, up, hold, rr_band):
+    """A confirmation at bar j: R:R, what happened next, and the user's band (skip under rr_min, take
+    profit at rr_max when the HTF target is further)."""
+    risk = abs(entry - stop)
+    res.update(state="confirmed", at=tr_time(lb[j]["t"]), entry=r2(entry), stop=r2(stop), risk=r2(risk),
+               rr=r2(abs(target - entry) / risk) if target is not None else None, target=r2(target))
+    if target is not None and ((target <= entry) if up else (target >= entry)):
+        res["state"] = "confirmed past the target"
+        return res
+    res["result"], res["result_at"] = _follow(lb, j, stop, target, up, hold)
+    lo, hi = rr_band
+    rr = res["rr"]
+    if rr is None or rr < lo:
+        res["band"] = {"action": "skip (R:R under %.1f)" % lo}
+    else:
+        tgt = target
+        if rr > hi:
+            tgt = entry + hi * risk if up else entry - hi * risk
+        r_, at_ = _follow(lb, j, stop, tgt, up, hold)
+        res["band"] = {"action": "take profit at %.1fR" % hi if rr > hi else "full HTF target",
+                       "target": r2(tgt), "rr": r2(min(rr, hi)), "result": r_, "result_at": at_}
+    return res
+
+
 def ltf_confirm(lb, side, zone_lo, zone_hi, htf_stop, target, start, piv=None, window=36, lookback=24,
-                hold=288, swing=2, atr=None, rr_band=(1.5, 3.5), buffer=0.0):
-    """Watch the lower timeframe from bar `start`: the first touch of the zone, then a CHoCH in the trade's
-    direction (a close through the last LTF swing that came before the extreme made in the zone), before
-    a close through the higher-timeframe stop and within `window` bars of the touch.
-    Returns the state, and for a confirmation the entry (the CHoCH close), the stop (the LTF extreme),
-    the R:R to the target and what happened next (target or stop first, within `hold` bars)."""
+                hold=288, swing=2, atr=None, rr_band=(1.5, 3.5), buffer=0.0, mode="itl", ltiers=None):
+    """Watch the lower timeframe from bar `start`: the first touch of the zone, then the confirmation,
+    before a close through the higher-timeframe stop and within `window` bars of the touch.
+
+      mode "itl"    the first LTF ITL (long) / ITH (short) whose low (high) formed at or after the touch;
+                    it confirms when it becomes known (its right-hand STL / STH is confirmed). Entry at
+                    that bar's close, stop at the ITL low (ITH high)
+      mode "choch"  a close through the last LTF swing high (low) that came before the extreme made in
+                    the zone. Entry at that close, stop at the extreme
+
+    Returns the state, and for a confirmation the entry, the stop, the R:R to the target and what
+    happened next (target or stop first, within `hold` bars)."""
     n = len(lb)
     up = side == "long"
     atr = atr or ltf_atr(lb)
-    hs, ls = piv or ltf_pivots(lb, swing)
-    opp = hs if up else ls                          # the swings a CHoCH must close through
-    res = {"state": "waiting for a touch", "touch": None}
+    word = "an ITL" if (mode == "itl" and up) else "an ITH" if mode == "itl" else "a CHoCH"
+    res = {"state": "waiting for a touch", "touch": None, "mode": mode}
     j0 = None
     for j in range(start, n):
         b = lb[j]
@@ -1075,9 +1104,40 @@ def ltf_confirm(lb, side, zone_lo, zone_hi, htf_stop, target, start, piv=None, w
         if (b["l"] <= zone_hi) if up else (b["h"] >= zone_lo):
             j0 = j
             break
+        if target is not None and ((b["h"] >= target) if up else (b["l"] <= target)):
+            res["state"] = "missed (reached the target before a touch)"
+            res["at"] = tr_time(b["t"])
+            return res
     if j0 is None:
         return res
-    res.update(state="touched, waiting for a CHoCH", touch=tr_time(lb[j0]["t"]))
+    res.update(state="touched, waiting for %s" % word, touch=tr_time(lb[j0]["t"]))
+
+    if mode == "itl":
+        t = ltiers or tiers(lb)
+        pts = t["ITL"] if up else t["ITH"]
+        cand = [p for p in pts if p["i"] >= j0]
+        for j in range(j0, min(n, j0 + window + 1)):
+            b = lb[j]
+            if (b["c"] < htf_stop) if up else (b["c"] > htf_stop):
+                res.update(state="invalidated (closed through the HTF stop)", at=tr_time(b["t"]))
+                return res
+            hit = [p for p in cand if p["known"] == j]
+            if hit:
+                p = hit[0]
+                pad = buffer * atr[j]
+                stop = p["level"] - pad if up else p["level"] + pad
+                entry = b["c"]
+                if (entry - stop) * (1 if up else -1) <= 0:
+                    continue
+                res["itl"] = {"level": r2(p["level"]), "at": tr_time(lb[p["i"]]["t"])}
+                res["confirm_level"] = r2(p["level"])
+                return _finish(res, lb, j, entry, stop, target, up, hold, rr_band)
+        if j0 + window < n:
+            res["state"] = "no %s within the window" % ("ITL" if up else "ITH")
+        return res
+
+    hs, ls = piv or ltf_pivots(lb, swing)
+    opp = hs if up else ls                          # the swings a CHoCH must close through
     ext_i = j0
     for j in range(j0, min(n, j0 + window + 1)):
         b = lb[j]
@@ -1095,11 +1155,9 @@ def ltf_confirm(lb, side, zone_lo, zone_hi, htf_stop, target, start, piv=None, w
             entry = b["c"]
             pad = buffer * atr[j]
             stop = lb[ext_i]["l"] - pad if up else lb[ext_i]["h"] + pad
-            risk = abs(entry - stop)
-            if risk <= 0:
+            if abs(entry - stop) <= 0:
                 continue
-            body = abs(b["c"] - b["o"])
-            disp = body >= atr[j]
+            disp = abs(b["c"] - b["o"]) >= atr[j]
             gap = None
             for k in range(ext_i + 1, j):
                 a_, c_ = lb[k - 1], lb[k + 1]
@@ -1107,28 +1165,9 @@ def ltf_confirm(lb, side, zone_lo, zone_hi, htf_stop, target, start, piv=None, w
                     gap = (a_["h"], c_["l"])
                 elif not up and a_["l"] > c_["h"]:
                     gap = (c_["h"], a_["l"])
-            res.update(state="confirmed", at=tr_time(b["t"]), choch_level=r2(key["level"]), entry=r2(entry),
-                       stop=r2(stop), risk=r2(risk), displacement=bool(disp or gap),
-                       ltf_fvg=[r2(gap[0]), r2(gap[1])] if gap else None,
-                       rr=r2(abs(target - entry) / risk) if target is not None else None,
-                       target=r2(target))
-            if target is not None and ((target <= entry) if up else (target >= entry)):
-                res["state"] = "confirmed past the target"
-                return res
-            res["result"], res["result_at"] = _follow(lb, j, stop, target, up, hold)
-            # your band: skip under rr_min, take profit at rr_max when the HTF target is further
-            lo, hi = rr_band
-            rr = res["rr"]
-            if rr is None or rr < lo:
-                res["band"] = {"action": "skip (R:R under %.1f)" % lo}
-            else:
-                tgt = target
-                if rr > hi:
-                    tgt = entry + hi * risk if up else entry - hi * risk
-                r_, at_ = _follow(lb, j, stop, tgt, up, hold)
-                res["band"] = {"action": "take profit at %.1fR" % hi if rr > hi else "full HTF target",
-                               "target": r2(tgt), "rr": r2(min(rr, hi)), "result": r_, "result_at": at_}
-            return res
+            res.update(choch_level=r2(key["level"]), confirm_level=r2(key["level"]), displacement=bool(disp or gap),
+                       ltf_fvg=[r2(gap[0]), r2(gap[1])] if gap else None)
+            return _finish(res, lb, j, entry, stop, target, up, hold, rr_band)
     if j0 + window < n:
         res["state"] = "no CHoCH within the window"
     return res
@@ -1155,7 +1194,8 @@ def bias_at(dbars, t_utc, step=86400):
 
 
 def confirm_sequences(lbars, ltf, htf, now_utc, window=36, swing=2, hold=288, rr_band=(1.5, 3.5),
-                      fvg_window=24, buffer=0.0, bias_bars=None, bias_tf=None):
+                      fvg_window=24, buffer=0.0, bias_bars=None, bias_tf=None, mode="itl", include_range=False,
+                      range_window=24):
     """Every higher-timeframe LTL -> ITL -> FVG sequence (built from the same data), each followed on the
     lower timeframe; plus the comparison: entering at the HTF gap vs waiting for the LTF CHoCH."""
     lbars = closed_only(lbars, ltf, now_utc)
@@ -1168,7 +1208,10 @@ def confirm_sequences(lbars, ltf, htf, now_utc, window=36, swing=2, hold=288, rr
     t = tiers(hbars)
     setups = scan_setups(hbars, t, fvgs(hbars), fvg_window)
     piv = ltf_pivots(lbars, swing)
+    lt = tiers(lbars) if mode == "itl" else None
     atr = ltf_atr(lbars)
+    hreg = regime(hbars, range_window)
+    hboxes = amd_boxes(hbars, hreg, range_window)
     times = [b["t"] for b in lbars]
     rows = []
     for s in setups:
@@ -1179,8 +1222,10 @@ def confirm_sequences(lbars, ltf, htf, now_utc, window=36, swing=2, hold=288, rr
             continue
         side = "long" if s["dir"] == "bullish" else "short"
         p = s["plan"]
+        in_range = box_at(hboxes, k) is not None
         res = ltf_confirm(lbars, side, s["fvg"]["bottom"], s["fvg"]["top"], p["stop"], p["target"], start,
-                          piv, window, hold=hold, swing=swing, atr=atr, rr_band=rr_band, buffer=buffer)
+                          piv, window, hold=hold, swing=swing, atr=atr, rr_band=rr_band, buffer=buffer,
+                          mode=mode, ltiers=lt)
         htf_r = {"target": p["reward_risk"], "stopped": -1.0}.get(s["status"])
         ltf_r = band_r = None
         if res.get("result") == "target":
@@ -1196,7 +1241,7 @@ def confirm_sequences(lbars, ltf, htf, now_utc, window=36, swing=2, hold=288, rr
         if bias_bars is not None:
             bias, why = bias_at(bias_bars, start_t, SECONDS[bias_tf])
         rows.append({"dir": s["dir"], "known_at": s["known_at"], "zone": [s["fvg"]["bottom"], s["fvg"]["top"]],
-                     "bias": bias, "bias_why": why,
+                     "bias": bias, "bias_why": why, "in_range": in_range, "regime": hreg[k]["state"],
                      "aligned": None if bias is None else bias == s["dir"],
                      "htf_plan": {"entry": p["entry"], "stop": p["stop"], "target": p["target"],
                                   "rr": p["reward_risk"], "status": s["status"]},
@@ -1207,6 +1252,11 @@ def confirm_sequences(lbars, ltf, htf, now_utc, window=36, swing=2, hold=288, rr
         if rr is not None:
             r["ltf"]["rr_band"] = "in band" if lo <= rr <= hi else ("under %.1f" % lo if rr < lo else "over %.1f" % hi)
 
+    all_rows = rows
+    ranged = [r for r in rows if r["in_range"]]
+    if not include_range:
+        rows = [r for r in rows if not r["in_range"]]
+
     def tally(key, only=None):
         xs = [r[key] for r in rows if r[key] is not None and (only is None or r["aligned"] is only)]
         return {"trades": len(xs), "wins": sum(1 for x in xs if x > 0), "total_r": r2(sum(xs)),
@@ -1216,7 +1266,8 @@ def confirm_sequences(lbars, ltf, htf, now_utc, window=36, swing=2, hold=288, rr
         "created_by": "trader-structure", "mode": "confirm", "ltf": ltf, "htf": htf,
         "ltf_bars": len(lbars), "htf_bars": len(hbars), "from": tr_time(lbars[0]["t"]), "to": tr_time(lbars[-1]["t"]),
         "price": r2(lbars[-1]["c"]), "timezone": "Turkey (UTC+3)", "rr_band": list(rr_band),
-        "sequences": rows[-12:],
+        "mode": mode, "range_excluded": 0 if include_range else len(ranged),
+        "sequences": all_rows[-12:],
         "live": [r for r in rows if r["ltf"]["state"] in ("waiting for a touch", "touched, waiting for a CHoCH")
                  or (r["ltf"].get("result") == "open")],
         "compare": {"htf_entry": tally("htf_r"), "ltf_confirmed": tally("ltf_r"),
@@ -1225,7 +1276,8 @@ def confirm_sequences(lbars, ltf, htf, now_utc, window=36, swing=2, hold=288, rr
                                            .startswith("skip")),
                     "touched": sum(1 for r in rows if r["ltf"]["touch"]),
                     "confirmed": len(conf),
-                    "no_choch": sum(1 for r in rows if r["ltf"]["state"] == "no CHoCH within the window"),
+                    "no_confirmation": sum(1 for r in rows if r["ltf"]["state"].startswith("no ")),
+                    "missed": sum(1 for r in rows if r["ltf"]["state"].startswith("missed")),
                     "invalidated": sum(1 for r in rows if r["ltf"]["state"].startswith("invalid"))},
         "bias_tf": bias_tf,
         "by_bias": None if bias_bars is None else {
@@ -1236,22 +1288,24 @@ def confirm_sequences(lbars, ltf, htf, now_utc, window=36, swing=2, hold=288, rr
                             "htf_entry": tally("htf_r", False), "ltf_confirmed": tally("ltf_r", False),
                             "ltf_with_band": tally("band_r", False)},
             "bias_now": bias_at(bias_bars, epoch(now_utc) + 1, SECONDS[bias_tf])[0]},
-        "note": ("HTF entry = a limit at the gap with the stop at the ITL / ITH; LTF entry = the close of the "
-                 "lower-timeframe CHoCH after a touch, stop at the low (high) made in the zone. R counts a target "
+        "note": ("HTF entry = a limit at the gap with the stop at the ITL / ITH. LTF entry: mode itl = the close of "
+                 "the bar where the first LTF ITL (ITH) formed after the touch became known, stop at its low "
+                 "(high); mode choch = the close of the LTF CHoCH, stop at the low (high) made in the zone. "
+                 "Sequences inside an H1 range box are left out of the comparison unless --include-range. R counts a target "
                  "as its planned R:R and a stop as -1; open trades are left out. A few dozen sequences prove "
                  "nothing. Not financial advice."),
     }
 
 
 def confirm_zone(lbars, ltf, now_utc, side, lo, hi, htf_stop, target, since_utc, window=36, swing=2, hold=288,
-                 rr_band=(1.5, 3.5), buffer=0.0):
+                 rr_band=(1.5, 3.5), buffer=0.0, mode="itl"):
     """A zone the user gives: follow it on the lower timeframe from `since`."""
     lbars = closed_only(lbars, ltf, now_utc)
     start = next((i for i, b in enumerate(lbars) if b["t"] >= epoch(since_utc)), None)
     if start is None:
         raise StructureError("no %s bars after --since" % ltf)
     res = ltf_confirm(lbars, side, lo, hi, htf_stop, target, start, None, window, hold=hold, swing=swing,
-                      rr_band=rr_band, buffer=buffer)
+                      rr_band=rr_band, buffer=buffer, mode=mode)
     rr = res.get("rr")
     if rr is not None:
         res["rr_band"] = "in band" if rr_band[0] <= rr <= rr_band[1] else (
@@ -1266,8 +1320,13 @@ def confirm_zone(lbars, ltf, now_utc, side, lo, hi, htf_stop, target, since_utc,
 def ltf_line(res):
     st_ = res["state"]
     if st_.startswith("confirmed"):
-        line = "%s %s: CHoCH through %.2f, entry %.2f stop %.2f target %s R:R %s%s%s" % (
-            st_, res["at"][5:], res["choch_level"], res["entry"], res["stop"],
+        if res.get("itl"):
+            head = "LTF %s %.2f (made %s)" % ("ITL" if res["entry"] > res["stop"] else "ITH", res["itl"]["level"],
+                                             res["itl"]["at"][5:])
+        else:
+            head = "CHoCH through %.2f" % res["choch_level"]
+        line = "%s %s: %s, entry %.2f stop %.2f target %s R:R %s%s%s" % (
+            st_, res["at"][5:], head, res["entry"], res["stop"],
             "n/a" if res.get("target") is None else "%.2f" % res["target"],
             "n/a" if res.get("rr") is None else "%.2f" % res["rr"],
             "" if res.get("rr_band") in (None, "in band") else " (%s)" % res["rr_band"],
@@ -1296,11 +1355,15 @@ def ltf_line(res):
 def render_confirm(doc):
     out = ["%s%s -> %s confirmation, %s to %s (Turkey time), last close %.2f, R:R band %.1f-%.1f" % (
         ("%s bias -> " % doc["bias_tf"]) if doc.get("bias_tf") else "", doc["htf"], doc["ltf"], doc["from"], doc["to"],
-        doc["price"], doc["rr_band"][0], doc["rr_band"][1]), ""]
+        doc["price"], doc["rr_band"][0], doc["rr_band"][1]),
+        "Confirmation: %s" % ("an LTF ITL (long) / ITH (short) forming after the touch" if doc.get("mode") == "itl"
+                              else "an LTF CHoCH after the touch"), ""]
     if not doc["sequences"]:
         out.append("No HTF sequence in this data.")
     for r in doc["sequences"]:
         h = r["htf_plan"]
+        if r.get("in_range"):
+            out.append("  [H1 range: not your setup, left out of the comparison]")
         if r.get("bias"):
             out.append("  %s bias %s (%s): %s" % (doc.get("bias_tf"), r["bias"], r["bias_why"],
                                                   "ALIGNED" if r["aligned"] else "against / unclear"))
@@ -1310,24 +1373,25 @@ def render_confirm(doc):
         out.append("          LTF: " + ltf_line(r["ltf"]))
     c = doc["compare"]
     a, b, k = c["htf_entry"], c["ltf_confirmed"], c["ltf_with_band"]
-    out += ["", "Compare (closed trades only):",
+    out += ["", "Compare (closed trades only%s):" % (
+        ", %d sequence(s) inside an H1 range left out" % doc["range_excluded"] if doc.get("range_excluded") else ""),
             "  enter at the HTF gap      %d trades, %d won, total %s R, avg %s R" % (
                 a["trades"], a["wins"], a["total_r"], a["avg_r"]),
-            "  LTF CHoCH, HTF target     %d trades, %d won, total %s R, avg %s R" % (
+            "  LTF confirm, HTF target   %d trades, %d won, total %s R, avg %s R" % (
                 b["trades"], b["wins"], b["total_r"], b["avg_r"]),
-            "  LTF CHoCH + your band     %d trades, %d won, total %s R, avg %s R (%d skipped under %.1f, "
+            "  LTF confirm + your band   %d trades, %d won, total %s R, avg %s R (%d skipped under %.1f, "
             "targets over %.1fR taken at %.1fR)" % (k["trades"], k["wins"], k["total_r"], k["avg_r"],
                                                    c["skipped_by_band"], doc["rr_band"][0], doc["rr_band"][1],
                                                    doc["rr_band"][1]),
-            "  touched %d, confirmed %d, no CHoCH %d, invalidated %d" % (
-                c["touched"], c["confirmed"], c["no_choch"], c["invalidated"])]
+            "  touched %d, confirmed %d, no confirmation %d, invalidated %d, ran to the target untouched %d" % (
+                c["touched"], c["confirmed"], c["no_confirmation"], c["invalidated"], c["missed"])]
     bb = doc.get("by_bias")
     if bb:
         out += ["", "Split by the %s bias (bias now: %s):" % (doc["bias_tf"], bb["bias_now"])]
         for key, label in (("aligned", "with the bias"), ("not_aligned", "against / unclear")):
             g = bb[key]
             out.append("  %-18s %d sequence(s)" % (label, g["sequences"]))
-            for k2, l2 in (("htf_entry", "HTF entry"), ("ltf_confirmed", "LTF CHoCH"), ("ltf_with_band", "LTF + band")):
+            for k2, l2 in (("htf_entry", "HTF entry"), ("ltf_confirmed", "LTF conf."), ("ltf_with_band", "LTF + band")):
                 x = g[k2]
                 out.append("      %-10s %d trades, %d won, total %s R, avg %s R" % (l2, x["trades"], x["wins"],
                                                                                   x["total_r"], x["avg_r"]))
@@ -1568,7 +1632,7 @@ def cmd_confirm(a):
         a.days = 30.0
     sym, bars, interval, now, _ = load(a)
     per_hour = 3600.0 / SECONDS[a.ltf]
-    a.window = a.window or max(4, int(round(3 * per_hour)))          # three hours
+    a.window = a.window or max(4, int(round((12 if a.mode == "itl" else 3) * per_hour)))   # 12 h for an ITL, 3 h for a CHoCH
     a.hold = a.hold or int(round(24 * per_hour))                     # one day
     band = (a.rr_min, a.rr_max)
     bias_bars = None
@@ -1596,11 +1660,12 @@ def cmd_confirm(a):
         lo, hi = sorted((float(m.group(1)), float(m.group(2))))
         since = parse_at(a.since) if a.since else now - datetime.timedelta(days=1)
         doc = confirm_zone(bars, a.ltf, now, a.side, lo, hi, a.stop, a.target, since, a.window, a.swing,
-                           a.hold, band, a.buffer)
+                           a.hold, band, a.buffer, a.mode)
         out = render_confirm_zone(doc)
     else:
         doc = confirm_sequences(bars, a.ltf, a.htf, now, a.window, a.swing, a.hold, band, buffer=a.buffer,
-                                bias_bars=bias_bars, bias_tf=a.bias_tf)
+                                bias_bars=bias_bars, bias_tf=a.bias_tf, mode=a.mode,
+                                include_range=a.include_range, range_window=a.range_window)
         out = render_confirm(doc)
     doc["symbol"] = sym
     if a.write:
@@ -1649,11 +1714,16 @@ def build_parser():
     p.set_defaults(interval=None)
     p.add_argument("--ltf", default="15m", help="the confirmation timeframe (default 15m)")
     p.add_argument("--htf", default="1h", help="the timeframe of the zones (default 1h, built from the LTF data)")
+    p.add_argument("--mode", choices=["itl", "choch"], default="itl",
+                   help="the LTF confirmation: itl (default: an LTF ITL / ITH forming after the touch) or choch")
+    p.add_argument("--include-range", action="store_true",
+                   help="keep sequences that formed inside an H1 range box in the comparison")
     p.add_argument("--bias-tf", default="1d", help="the bias timeframe (default 1d; none to switch it off)")
     p.add_argument("--bias-offline", help="a saved chart file for the bias timeframe (offline runs)")
     p.add_argument("--data-interval", help="the bar size of the data when smaller than --ltf (e.g. 5m)")
     p.add_argument("--days", type=float, help="Binance: days of LTF history to fetch in pages (default 30)")
-    p.add_argument("--window", type=int, help="LTF bars after the touch to wait for the CHoCH (default: 3 hours)")
+    p.add_argument("--window", type=int,
+                   help="LTF bars after the touch to wait for the confirmation (default: 12 hours itl, 3 hours choch)")
     p.add_argument("--swing", type=int, default=2, help="LTF swing size in bars each side (default 2)")
     p.add_argument("--hold", type=int, help="LTF bars to follow a confirmed trade (default: one day)")
     p.add_argument("--rr-min", type=float, default=1.5)

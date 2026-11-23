@@ -346,7 +346,7 @@ class LowerTimeframe(unittest.TestCase):
 
     def test_touch_choch_entry_stop_and_target(self):
         lb = ltf_path(self.PATH)
-        r = st.ltf_confirm(lb, "long", 100, 101, 98, 120, 0, rr_band=(1.5, 3.5), window=40)
+        r = st.ltf_confirm(lb, "long", 100, 101, 98, 120, 0, rr_band=(1.5, 3.5), window=40, mode="choch")
         self.assertEqual(r["state"], "confirmed")
         self.assertEqual(r["choch_level"], 102.52)
         self.assertEqual((r["entry"], r["stop"]), (103.2, 99.58))          # the CHoCH close, the low in the zone
@@ -356,26 +356,26 @@ class LowerTimeframe(unittest.TestCase):
         self.assertEqual((r["band"]["target"], r["band"]["result"]), (115.87, "target"))
 
     def test_band_skips_a_small_reward(self):
-        lb = ltf_path(self.PATH)
-        r = st.ltf_confirm(lb, "long", 100, 101, 98, 103.6, 0, rr_band=(1.5, 3.5), window=40)
+        lb = ltf_path([102.9] + self.PATH[1:])            # start under the 103.6 target
+        r = st.ltf_confirm(lb, "long", 100, 101, 98, 103.6, 0, rr_band=(1.5, 3.5), window=40, mode="choch")
         self.assertTrue(r["band"]["action"].startswith("skip"))
 
     def test_buffer_moves_the_stop(self):
         lb = ltf_path(self.PATH)
-        a = st.ltf_confirm(lb, "long", 100, 101, 98, 107, 0, window=40)
-        b = st.ltf_confirm(lb, "long", 100, 101, 98, 107, 0, window=40, buffer=0.5)
+        a = st.ltf_confirm(lb, "long", 100, 101, 98, 107, 0, window=40, mode="choch")
+        b = st.ltf_confirm(lb, "long", 100, 101, 98, 107, 0, window=40, buffer=0.5, mode="choch")
         self.assertLess(b["stop"], a["stop"])
 
     def test_htf_stop_invalidates_and_no_choch(self):
         lb = ltf_path([104, 101.8, 102.5, 99.6, 97.5, 97])
-        self.assertTrue(st.ltf_confirm(lb, "long", 100, 101, 98, 107, 0)["state"].startswith("invalidated"))
+        self.assertTrue(st.ltf_confirm(lb, "long", 100, 101, 98, 107, 0, mode="choch")["state"].startswith("invalidated"))
         lb = ltf_path([104, 101.8, 102.5, 99.6, 100.5, 100.0, 100.6, 100.1] + [100.3, 100.2] * 12)
-        self.assertEqual(st.ltf_confirm(lb, "long", 100, 101, 98, 107, 0, window=20)["state"],
+        self.assertEqual(st.ltf_confirm(lb, "long", 100, 101, 98, 107, 0, window=20, mode="choch")["state"],
                          "no CHoCH within the window")
 
     def test_short_side_mirror(self):
         lb = ltf_path([96, 98.2, 97.5, 100.4, 96.8, 97.4, 92])
-        r = st.ltf_confirm(lb, "short", 99, 100, 102, 93, 0, window=40)
+        r = st.ltf_confirm(lb, "short", 99, 100, 102, 93, 0, window=40, mode="choch")
         self.assertEqual((r["state"], r["result"]), ("confirmed", "target"))
         self.assertEqual(r["stop"], 100.42)
 
@@ -402,12 +402,13 @@ class LowerTimeframe(unittest.TestCase):
         out, err = io.StringIO(), io.StringIO()
         with redirect_stdout(out), redirect_stderr(err):
             code = st.main(["confirm", "TSLA", "--offline", TSLA, "--at", "2026-10-19 17:15", "--json",
-                            "--ltf", "5m", "--bias-tf", "none"])
+                            "--ltf", "5m", "--bias-tf", "none", "--mode", "choch"])
         self.assertEqual(code, 0, err.getvalue())
         d = json.loads(out.getvalue())
         self.assertEqual((d["ltf"], d["htf"]), ("5m", "1h"))
         c = d["compare"]
-        self.assertEqual(c["touched"], 9)
+        self.assertEqual(c["touched"], 7)
+        self.assertEqual(c["missed"], 2)             # ran to the H1 target before price came back
         self.assertEqual(c["confirmed"], 5)
         for r in d["sequences"]:
             l_ = r["ltf"]
@@ -456,3 +457,56 @@ class DailyBias(unittest.TestCase):
             st.main(["confirm", "TSLA", "--offline", TSLA, "--data-interval", "5m", "--at", "2026-10-19 17:15"])
         self.assertIn("1d bias -> 1h -> 15m confirmation", o.getvalue())
         self.assertIn("Split by the 1d bias", o.getvalue())
+
+
+def lows_path(lows, top=105.0, start_t=T0):
+    """15m bars whose lows follow `lows` exactly, highs one point above, closing near the high."""
+    return [{"t": start_t + 900 * k, "o": l + 0.5, "h": l + 1.0, "l": l, "c": l + 0.9, "v": 1}
+            for k, l in enumerate(lows)]
+
+
+class ItlConfirmation(unittest.TestCase):
+    # lows: into the zone (<= 101), STLs at 100.0, 99.2, 100.4: 99.2 is an ITL once 100.4 is confirmed
+    LOWS = [103, 102, 101, 100.0, 100.6, 99.2, 100.8, 100.4, 101.5, 103, 105, 108, 112, 116, 120]
+
+    def test_first_itl_after_the_touch(self):
+        lb = lows_path(self.LOWS)
+        r = st.ltf_confirm(lb, "long", 100.5, 101, 97, 115, 0, window=20)
+        self.assertEqual(r["state"], "confirmed")
+        self.assertEqual(r["itl"]["level"], 99.2)
+        self.assertEqual(r["stop"], 99.2)
+        self.assertEqual(r["entry"], lb[8]["c"])          # the ITL is known when the STL at bar 7 is (bar 8)
+        self.assertEqual(r["result"], "target")
+        self.assertEqual(r["band"]["action"], "take profit at 3.5R")
+
+    def test_stop_close_and_target_first(self):
+        lb = lows_path([103, 102, 101, 96.5, 96.0, 95.5])
+        self.assertTrue(st.ltf_confirm(lb, "long", 100.5, 101, 97, 115, 0)["state"].startswith("invalidated"))
+        lb = lows_path([103, 104, 110, 116, 101])        # ran to 115 before coming back to the zone
+        self.assertTrue(st.ltf_confirm(lb, "long", 100.5, 101, 97, 115, 0)["state"].startswith("missed"))
+
+    def test_no_itl_in_the_window(self):
+        lb = lows_path([103, 102, 101, 100.5, 100.3, 100.1, 99.9, 99.7, 99.5, 99.3, 99.1, 98.9])
+        self.assertEqual(st.ltf_confirm(lb, "long", 100.5, 101, 97, 115, 0, window=8)["state"],
+                         "no ITL within the window")
+
+    def test_short_side(self):
+        lb = [{"t": T0 + 900 * k, "o": -l - 0.5, "h": -l, "l": -l - 1.0, "c": -l - 0.9, "v": 1}
+              for k, l in enumerate(self.LOWS)]
+        r = st.ltf_confirm(lb, "short", -101, -100.5, -97, -115, 0, window=20)
+        self.assertEqual((r["state"], r["itl"]["level"], r["result"]), ("confirmed", -99.2, "target"))
+
+    def test_itl_chain_and_range_flag_on_real_data(self):
+        out, err = io.StringIO(), io.StringIO()
+        with redirect_stdout(out), redirect_stderr(err):
+            code = st.main(["confirm", "TSLA", "--offline", TSLA, "--data-interval", "5m",
+                            "--at", "2026-10-19 17:15", "--json"])
+        self.assertEqual(code, 0, err.getvalue())
+        d = json.loads(out.getvalue())
+        self.assertEqual(d["mode"], "itl")
+        for r in d["sequences"]:
+            self.assertIn("in_range", r)
+            l_ = r["ltf"]
+            if l_["state"] == "confirmed":
+                self.assertEqual(l_["stop"], l_["itl"]["level"])
+                self.assertGreaterEqual(l_["itl"]["at"], l_["touch"])
