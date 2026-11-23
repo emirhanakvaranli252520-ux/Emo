@@ -92,6 +92,10 @@ Every command takes `--journal PATH` (default `trader/journal.json`);
 | max drawdown, losing streak | how bad it got from a peak; size so the worst streak would not end the account |
 | by setup / hour / tag | where the money comes from and where it leaks |
 | discipline | the share of trades that followed the plan cleanly. Under 80 %: fix the process before you judge the setup |
+| expectancy ratio | (1 + average win / average loss) x win rate - 1: what each dollar of average loss earns back. Above 0 is an edge |
+| SQN | Van Tharp's System Quality Number on R: sqrt(trades, up to 100) x average R / its spread. Under 1.6 poor, 2 to 2.5 good, 3+ excellent |
+| Sharpe / Sortino | on daily P&L, annualized by sqrt(252); Sortino only counts the down days as risk |
+| edge test | a t-test of "the average trade is zero" on R (or dollars). p under 0.05 with a positive t: unlikely to be luck alone. Most journals say "can't tell from luck yet", and that is the honest answer |
 | Time Machine vs reality | predicted vs actual target-first and stop-first rates, and a Brier score (0 perfect, 0.25 a coin flip) |
 
 ## Rules
@@ -109,7 +113,9 @@ Every command takes `--journal PATH` (default `trader/journal.json`);
 
 ## Hands off to
 
-- `/trader-risk`: if the journal shows losses worse than -1R, or a losing
-  streak that would hit the daily limit, suggest the user tighten
+- `/trader-risk`: its optional `protections` read this journal and lock new
+  entries after a cooldown, a run of stops, a drawdown or a losing setup.
+  If the journal shows losses worse than -1R, or a losing streak that would
+  hit the daily limit, suggest the user turn them on or tighten
   `max_loss_per_trade_usd` or `max_trades_per_day` (their decision).
 - `/trader-scanner`: drop the setups the scorecard says are losing money.

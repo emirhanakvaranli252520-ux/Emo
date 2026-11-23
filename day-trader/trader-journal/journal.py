@@ -39,6 +39,7 @@ month does not make the next one good, and a small sample proves little.
 import argparse
 import datetime
 import json
+import math
 import os
 import re
 import sys
@@ -339,6 +340,107 @@ def longest_streak(pnls, losing=True):
     return best
 
 
+def mean_std(xs):
+    n = len(xs)
+    if n < 2:
+        return (xs[0] if xs else None), None
+    m = sum(xs) / float(n)
+    return m, math.sqrt(sum((x - m) ** 2 for x in xs) / (n - 1))
+
+
+def _betacf(a, b, x):
+    """Continued fraction for the regularized incomplete beta (modified Lentz)."""
+    tiny = 1e-300
+    qab, qap, qam = a + b, a + 1.0, a - 1.0
+    c, d = 1.0, 1.0 - qab * x / qap
+    d = 1.0 / (d if abs(d) > tiny else tiny)
+    h = d
+    for m in range(1, 300):
+        m2 = 2 * m
+        aa = m * (b - m) * x / ((qam + m2) * (a + m2))
+        d = 1.0 + aa * d
+        d = 1.0 / (d if abs(d) > tiny else tiny)
+        c = 1.0 + aa / c
+        c = c if abs(c) > tiny else tiny
+        h *= d * c
+        aa = -(a + m) * (qab + m) * x / ((a + m2) * (qap + m2))
+        d = 1.0 + aa * d
+        d = 1.0 / (d if abs(d) > tiny else tiny)
+        c = 1.0 + aa / c
+        c = c if abs(c) > tiny else tiny
+        delta = d * c
+        h *= delta
+        if abs(delta - 1.0) < 1e-12:
+            break
+    return h
+
+
+def betainc(a, b, x):
+    if x <= 0:
+        return 0.0
+    if x >= 1:
+        return 1.0
+    lbeta = math.lgamma(a + b) - math.lgamma(a) - math.lgamma(b) + a * math.log(x) + b * math.log(1 - x)
+    front = math.exp(lbeta)
+    if x < (a + 1) / (a + b + 2):
+        return front * _betacf(a, b, x) / a
+    return 1.0 - front * _betacf(b, a, 1 - x) / b
+
+
+def t_two_sided_p(t, df):
+    """Two-sided p-value of Student's t with df degrees of freedom."""
+    return betainc(df / 2.0, 0.5, df / (df + t * t))
+
+
+def edge_test(xs):
+    """One-sample t-test of "the average trade is zero". Returns (t, p) or (None, None)."""
+    n = len(xs)
+    m, s = mean_std(xs)
+    if n < 3 or not s:
+        return None, None
+    t = m / (s / math.sqrt(n))
+    return round(t, 3), round(t_two_sided_p(t, n - 1), 4)
+
+
+def daily_pnl(trades):
+    days = {}
+    for t in trades:
+        d = t.get("closed_date") or t["date"]
+        days[d] = days.get(d, 0.0) + t["pnl"]
+    return [days[d] for d in sorted(days)]
+
+
+def ratios(trades):
+    """Per-day Sharpe and Sortino (annualized by sqrt(252) trading days) and Tharp's SQN in R."""
+    out = {}
+    days = daily_pnl(trades)
+    m, s = mean_std(days)
+    if len(days) >= 2:
+        out["trading_days"] = len(days)
+        out["sharpe_daily"] = r2(m / s * math.sqrt(252)) if s else None
+        downside = math.sqrt(sum(min(d, 0.0) ** 2 for d in days) / len(days))
+        out["sortino_daily"] = r2(m / downside * math.sqrt(252)) if downside > EPS else None
+    rs = [t["r"] for t in trades if t.get("r") is not None]
+    mr, sr = mean_std(rs)
+    if len(rs) >= 2 and sr:
+        # Van Tharp's System Quality Number: sqrt(n) x mean R / stdev R, n capped at 100
+        out["sqn"] = r2(math.sqrt(min(len(rs), 100)) * mr / sr)
+    sample = rs if len(rs) >= 3 else [t["pnl"] for t in trades]
+    t, p = edge_test(sample)
+    if t is not None:
+        out["edge_t"], out["edge_p"], out["edge_on"] = t, p, ("R" if sample is rs else "dollars")
+    return out
+
+
+def sqn_label(sqn):
+    if sqn is None:
+        return ""
+    for lim, word in ((1.6, "poor"), (2.0, "average"), (2.5, "good"), (3.0, "excellent"), (5.0, "superb")):
+        if sqn < lim:
+            return word
+    return "too good to be true: check the data"
+
+
 def summarize(trades):
     n = len(trades)
     pnls = [t["pnl"] for t in trades]
@@ -362,6 +464,10 @@ def summarize(trades):
         out["payoff_ratio"] = r2((gross_win / len(wins)) / (gross_loss / len(losses)))
         # the win rate this payoff needs just to break even
         out["breakeven_win_rate"] = r4(1.0 / (1.0 + out["payoff_ratio"])) if out["payoff_ratio"] else None
+        # what each dollar risked on an average loss earns back: (1 + payoff) x win rate - 1
+        out["expectancy_ratio"] = r2((1 + (gross_win / len(wins)) / (gross_loss / len(losses)))
+                                     * len(wins) / float(n) - 1)
+    out.update(ratios(trades))
     return out
 
 
@@ -501,6 +607,19 @@ def render_stats(doc):
         "  max drawdown    %s" % money(s["max_drawdown"]),
         "  streaks         %d losing, %d winning in a row" % (s["longest_losing_streak"], s["longest_winning_streak"]),
     ]
+    if s.get("expectancy_ratio") is not None:
+        out.append("  expect. ratio   %+.2f (per dollar of average loss)" % s["expectancy_ratio"])
+    if s.get("sqn") is not None:
+        out.append("  SQN             %.2f (%s; Van Tharp, on R)" % (s["sqn"], sqn_label(s["sqn"])))
+    if s.get("trading_days"):
+        out.append("  Sharpe/Sortino  %s / %s (daily P&L over %d day(s), x sqrt 252)" % (
+            "n/a" if s.get("sharpe_daily") is None else "%.2f" % s["sharpe_daily"],
+            "n/a" if s.get("sortino_daily") is None else "%.2f" % s["sortino_daily"], s["trading_days"]))
+    if s.get("edge_p") is not None:
+        out.append("  edge test       t %.2f, p %.3f on %s: %s" % (
+            s["edge_t"], s["edge_p"], s["edge_on"],
+            "unlikely to be luck alone" if s["edge_p"] < 0.05 and s["edge_t"] > 0 else
+            "a real loser, not bad luck" if s["edge_p"] < 0.05 else "can't tell from luck yet"))
     out += table(doc["by_setup"], "By setup")
     out += table(doc["by_hour"], "By entry hour (New York)")
     out += table(doc["by_tag"], "By tag")

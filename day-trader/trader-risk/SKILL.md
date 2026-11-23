@@ -45,6 +45,7 @@ python3 "${CLAUDE_SKILL_DIR}/check.py" --now "2026-10-19 10:15"  # pin the clock
 | `trader/prices.json` | a fresh price raises the entry it measures risk from; also values holdings |
 | `trader/state/broker.json` | what was placed today: duplicates, trades per day, daily loss, day trades |
 | `trader/state/risk.json` | the verdicts it writes, with a fingerprint of each exact order |
+| `trader/journal.json` | trader-journal's record of closed trades, for the optional protections |
 
 ## Entries and exits
 
@@ -97,6 +98,36 @@ How the numbers work:
   minimum (Regulatory Notice 26-10, effective June 4, 2026; firms may phase
   in until October 20, 2027), so some brokers still apply the old rule: turn
   `pdt_guard` on if yours does.
+
+### Protections (optional, from your own record)
+
+Limits per trade and per day do not notice a bad streak. Protections do:
+they read your closed trades in `trader/journal.json` (from
+`/trader-journal`) and lock NEW entries for a while after things go wrong.
+Exits are never locked. They are off until you add a `"protections"` block to
+`trader/config.json`; turn on only the ones you want:
+
+```json
+"protections": {
+  "cooldown":     {"minutes": 30},
+  "stop_guard":   {"lookback_days": 1, "trade_limit": 2},
+  "max_drawdown": {"lookback_days": 5, "max_drawdown_usd": 150},
+  "losing_setup": {"lookback_trades": 10, "trade_limit": 5, "min_expectancy_r": 0}
+}
+```
+
+| protection | locks | when |
+| --- | --- | --- |
+| `cooldown` | that symbol | for N minutes after you closed a trade in it (no revenge re-entry) |
+| `stop_guard` | every entry | N stopped-out trades (or -0.9R or worse) in the last D trading days |
+| `max_drawdown` | every entry | realized P&L fell more than X dollars from its peak in the last D trading days |
+| `losing_setup` | that setup | its last N trades (at least M) average under F R: paper-trade it instead |
+
+A lock lifts by itself when its window passes; nothing to reset. Changing or
+removing a protection is the user's decision, never yours: when one blocks,
+say which and why, and do not offer to switch it off to get the trade
+through. The idea comes from the "protections" in the open-source Freqtrade
+bot, rebuilt here for day trading stocks from the journal's R-multiples.
 
 Warnings do not block, but say them to the user: a LIVE account, a number
 sent as a number instead of a string, a stop that lives only in the plan and

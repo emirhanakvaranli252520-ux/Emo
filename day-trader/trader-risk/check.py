@@ -53,6 +53,19 @@ What blocks an entry (on top):
                 3 hours earlier too)
   pdt           only with "pdt_guard": true: 3 day trades already in the last
                 5 business days (a 4th would trip the old pattern-day-trader rule)
+  protections   only with a "protections" block in the config, read from your
+                own record in trader/journal.json (trader-journal):
+                cooldown      no re-entry in a symbol for N minutes after you
+                              closed it ({"minutes": 30})
+                stop_guard    N stopped-out trades in the last D trading days
+                              lock every new entry ({"lookback_days": 1,
+                              "trade_limit": 2})
+                max_drawdown  realized P&L down more than X from its peak in
+                              the last D trading days locks every new entry
+                              ({"lookback_days": 5, "max_drawdown_usd": 150})
+                losing_setup  a setup whose last N trades (at least M) average
+                              under F R is locked ({"lookback_trades": 10,
+                              "trade_limit": 5, "min_expectancy_r": 0})
 
 Exit code 0 when every order passes, 1 when any order is blocked.
 The verdicts go to trader/state/risk.json with a fingerprint of each order,
@@ -370,11 +383,133 @@ def day_trades(state, today):
 
 # ---------------------------------------------------------------- the check
 
-def check(orders, cfg, portfolio=None, prices=None, state=None, today=None, now=None, price_times=None):
+# ---------------------------------------------------------------- protections (from trader-journal)
+
+PROTECTION_KEYS = {
+    "cooldown": ("minutes",),
+    "stop_guard": ("lookback_days", "trade_limit"),
+    "max_drawdown": ("lookback_days", "max_drawdown_usd"),
+    "losing_setup": ("lookback_trades", "trade_limit", "min_expectancy_r"),
+}
+
+
+def _closed_at(t):
+    """A journal trade -> naive New York datetime it closed (end of its day when the time is unknown)."""
+    d = str(t.get("closed_date") or t.get("date") or "")
+    if not re.match(r"^\d{4}-\d{2}-\d{2}$", d):
+        return None
+    hm = HHMM.match(str(t.get("closed") or "23:59"))
+    hh, mm = (int(hm.group(1)), int(hm.group(2))) if hm else (23, 59)
+    return datetime.datetime(int(d[:4]), int(d[5:7]), int(d[8:10]), hh, mm)
+
+
+def protections(journal, c, now_et):
+    """Locks on NEW entries from your own recent record in trader/journal.json.
+    Returns {"all": [reasons], "symbol": {SYM: [reasons]}, "setup": {setup: [reasons]}, "active": [..]}.
+    Exits are never locked: the caller only applies these to entries."""
+    out = {"all": [], "symbol": {}, "setup": {}, "active": []}
+    pc = c.get("protections") or {}
+    if not pc:
+        return out
+    if not isinstance(pc, dict):
+        raise RiskError("\"protections\" must be an object like {\"cooldown\": {\"minutes\": 30}}")
+    for name, rule in pc.items():
+        if name not in PROTECTION_KEYS:
+            raise RiskError("unknown protection %r (known: %s)" % (name, ", ".join(sorted(PROTECTION_KEYS))))
+        if not isinstance(rule, dict):
+            raise RiskError("protection %s must be an object" % name)
+        for k in PROTECTION_KEYS[name]:
+            if k in rule and _f(rule[k]) is None:
+                raise RiskError("protection %s: %s must be a number" % (name, k))
+    trades = []
+    for t in (journal or {}).get("trades", []) if isinstance(journal, dict) else []:
+        at = _closed_at(t)
+        if t.get("status", "closed") == "closed" and at is not None and at <= now_et.replace(tzinfo=None):
+            trades.append((at, t))
+    trades.sort(key=lambda x: x[0])
+    if journal is None:
+        out["warnings"] = ["protections are on but there is no trader/journal.json yet "
+                           "(trader-journal: journal.py import), so none can lock"]
+        return out
+    now = now_et.replace(tzinfo=None, second=0, microsecond=0)
+    sessions = business_days(now.date(), 40)
+
+    def window(days):
+        n = max(int(days), 1)
+        first = sessions[min(n, len(sessions)) - 1]
+        return [(at, t) for at, t in trades if at.date().isoformat() >= first]
+
+    cd = pc.get("cooldown")
+    if cd:
+        mins = _f(cd.get("minutes")) or 30
+        last = {}
+        for at, t in trades:
+            last[str(t.get("symbol", "")).upper()] = at
+        for sym, at in last.items():
+            until = at + datetime.timedelta(minutes=mins)
+            if at <= now < until:
+                out["symbol"].setdefault(sym, []).append(
+                    "protection cooldown: you closed %s at %s; no re-entry for %s minutes, until %s New York"
+                    % (sym, at.strftime("%H:%M"), _num(mins), until.strftime("%H:%M")))
+                out["active"].append("cooldown %s until %s" % (sym, until.strftime("%H:%M")))
+
+    sg = pc.get("stop_guard")
+    if sg:
+        days, limit = _f(sg.get("lookback_days")) or 1, int(_f(sg.get("trade_limit")) or 2)
+        stops = [t for _, t in window(days)
+                 if t.get("outcome") == "stop" or (_f(t.get("r")) is not None and _f(t.get("r")) <= -0.9)]
+        if len(stops) >= limit:
+            out["all"].append("protection stop_guard: %d stopped-out trades in the last %s trading day(s) "
+                              "(%s); the limit is %d. Step away: no new entries until that window clears"
+                              % (len(stops), _num(days), ", ".join(str(t.get("id") or t.get("symbol"))
+                                                                  for t in stops), limit))
+            out["active"].append("stop_guard (%d stops)" % len(stops))
+
+    md = pc.get("max_drawdown")
+    if md:
+        days, cap = _f(md.get("lookback_days")) or 5, _f(md.get("max_drawdown_usd"))
+        if cap:
+            peak = cum = dd = 0.0
+            for _, t in window(days):
+                cum += _f(t.get("pnl")) or 0.0
+                peak = max(peak, cum)
+                dd = max(dd, peak - cum)
+            if dd > cap + CENT:
+                out["all"].append("protection max_drawdown: down %s from the peak over the last %s trading "
+                                  "day(s), over your %s limit. No new entries until that window clears"
+                                  % (money(dd), _num(days), money(cap)))
+                out["active"].append("max_drawdown (%s)" % money(dd))
+
+    ls = pc.get("losing_setup")
+    if ls:
+        look = int(_f(ls.get("lookback_trades")) or 10)
+        need = int(_f(ls.get("trade_limit")) or 5)
+        floor = _f(ls.get("min_expectancy_r"))
+        floor = 0.0 if floor is None else floor
+        by = {}
+        for _, t in trades:
+            if _f(t.get("r")) is not None:
+                by.setdefault(str(t.get("setup") or "other"), []).append(_f(t.get("r")))
+        for setup, rs in by.items():
+            recent = rs[-look:]
+            if len(recent) >= need:
+                exp = sum(recent) / len(recent)
+                if exp < floor - 1e-9:
+                    out["setup"].setdefault(setup, []).append(
+                        "protection losing_setup: the %s setup's last %d trades average %+.2fR, under your "
+                        "%+.2fR floor. Paper-trade it until it earns its way back"
+                        % (setup, len(recent), exp, floor))
+                    out["active"].append("losing_setup %s (%+.2fR)" % (setup, exp))
+    return out
+
+
+def check(orders, cfg, portfolio=None, prices=None, state=None, today=None, now=None, price_times=None,
+          journal=None):
     """Pure function. Returns {"results": [...], "pass": n, "block": n, "warnings": [...]}.
 
     now          naive UTC (default: the real clock); its New York date is "today"
-    price_times  {SYM: naive UTC time of that price}; None = every price counts as fresh"""
+    price_times  {SYM: naive UTC time of that price}; None = every price counts as fresh
+    journal      trader/journal.json, for the "protections" in the config (None = no journal)"""
     c = dict(DEFAULTS)
     c.update(cfg or {})
     prices = {str(k).upper(): float(v) for k, v in (prices or {}).items() if _f(v)}
@@ -397,6 +532,8 @@ def check(orders, cfg, portfolio=None, prices=None, state=None, today=None, now=
     placed_keys = {(str(r.get("symbol", "")).upper(), r.get("side")) for r in done_today}
     win_reasons, win_warns = window_check(now_et, c)
     pdt_n, pdt_list = day_trades(state, today) if c.get("pdt_guard") else (0, [])
+    prot = protections(journal, c, now_et)
+    top_warn.extend(prot.get("warnings", []))
     seen = set()
     results = []
     batch_entries, batch_loss = 0, 0.0
@@ -628,6 +765,9 @@ def check(orders, cfg, portfolio=None, prices=None, state=None, today=None, now=
                 later.append("pdt: %d day trades in the last 5 business days (%s); a 4th trips the "
                              "pattern-day-trader rule your broker applies (\"pdt_guard\": true)"
                              % (pdt_n, ", ".join(pdt_list)))
+            later.extend(prot["all"])
+            later.extend(prot["symbol"].get(sym, []))
+            later.extend(prot["setup"].get(str(plan.get("setup") or "other"), []))
             if stop and ref and risk_ps:
                 info.append("entry %s (%s), stop %s, target %s: risk %s a share"
                             % (_p(ref), REF_WORDS.get(ref_from, ref_from), _p(stop),
@@ -700,6 +840,7 @@ def check(orders, cfg, portfolio=None, prices=None, state=None, today=None, now=
         "block": sum(1 for r in results if r["verdict"] == "BLOCK"),
         "warnings": top_warn,
         "cash_after": round(acct["cash"], 2),
+        "protections": prot["active"],
         "today": {"orders_placed": count_today, "entries_placed": len(entries_today),
                   "loss_at_risk": round(loss_today, 2), "day_trades_5d": pdt_n if c.get("pdt_guard") else None},
     }
@@ -730,6 +871,9 @@ def report(res):
             lines.append("        - " + x)
         for x in r["warnings"]:
             lines.append("        ~ " + x)
+    if res.get("protections"):
+        lines.append("")
+        lines.append("Protections active: " + "; ".join(res["protections"]))
     lines.append("")
     lines.append("%d passed, %d blocked at %s New York. Cash after the passed orders: %s (%s account)."
                  % (res["pass"], res["block"], res["now_new_york"], money(res["cash_after"]),
@@ -773,6 +917,8 @@ def main(argv=None):
                     help="your account; if missing, a fresh account funded with the budget")
     ap.add_argument("--prices", default="trader/prices.json")
     ap.add_argument("--state", default="trader/state/broker.json", help="what trader-broker placed today")
+    ap.add_argument("--journal", default="trader/journal.json",
+                    help="trader-journal's record, for the \"protections\" in the config")
     ap.add_argument("--now", help="pretend it is this New York time, e.g. \"2026-10-19 10:15\"")
     ap.add_argument("--today", help="YYYY-MM-DD (default: today in New York)")
     ap.add_argument("--out", default="trader/state/risk.json", help="where the verdicts are recorded")
@@ -792,7 +938,8 @@ def main(argv=None):
         pdoc = read_json(a.prices, "prices", required=False) or {}
         prices, times = load_prices(pdoc)
         state = read_json(a.state, "broker state", required=False)
-        res = check(orders, cfg, portfolio, prices, state, a.today, now, times)
+        journal = read_json(a.journal, "journal", required=False)
+        res = check(orders, cfg, portfolio, prices, state, a.today, now, times, journal)
         if pdoc.get("as_of"):
             res["prices_as_of"] = pdoc["as_of"]
         if not a.no_write:

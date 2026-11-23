@@ -216,3 +216,23 @@ class Cli(Base):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Ratios(unittest.TestCase):
+    def test_t_distribution_matches_tables(self):
+        self.assertAlmostEqual(journal.t_two_sided_p(2.0, 10), 0.0734, places=4)
+        self.assertAlmostEqual(journal.t_two_sided_p(1.0, 4), 0.3739, places=4)
+        self.assertAlmostEqual(journal.t_two_sided_p(0.2, 2), 1 - 0.2 / (0.04 + 2) ** 0.5, places=6)
+
+    def test_sqn_sharpe_sortino_and_expectancy_ratio(self):
+        ts = [{"id": str(i), "date": "2026-10-%02d" % (i + 1), "pnl": p, "r": p / 50.0, "status": "closed"}
+              for i, p in enumerate([50, -25, -25, 100, -50])]
+        s = journal.summarize(ts)
+        self.assertEqual(s["expectancy_ratio"], 0.3)          # (1 + 2.25) x 0.4 - 1
+        self.assertEqual(s["sqn"], 0.36)                       # sqrt(5) x 0.2 / stdev(R) 1.255
+        self.assertEqual(s["trading_days"], 5)
+        self.assertIsNotNone(s["sharpe_daily"])
+        self.assertGreater(s["sortino_daily"], s["sharpe_daily"])
+        self.assertEqual(s["edge_on"], "R")
+        self.assertGreater(s["edge_p"], 0.5)
+        self.assertEqual(journal.sqn_label(2.2), "good")

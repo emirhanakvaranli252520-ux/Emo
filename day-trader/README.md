@@ -72,7 +72,7 @@ or in the `SEC_USER_AGENT` environment variable.
 | `/trader-alerts` | Price Alerts | Rings when a price, a stop or the opening bell hits. |
 | `/trader-analyst` | Earnings Analyst | Reads earnings reports and sums up what changed. |
 | `/trader-pelosi` | Pelosi Tracker | Reads Congress's stock-trade disclosures the minute they are filed. |
-| `/trader-journal` | Trade Journal | Scores every closed trade against its plan, in R: win rate, expectancy, drawdown, discipline, and how the Time Machine's odds held up. |
+| `/trader-journal` | Trade Journal | Scores every closed trade against its plan, in R: win rate, expectancy, SQN, drawdown, discipline, and how the Time Machine's odds held up. Feeds the risk manager's optional protections. |
 
 ## How to use it
 

@@ -19,7 +19,15 @@ geliştirildi. 12 skill, `.claude/skills/` altından bu projede doğrudan `/trad
 python3 day-trader/trader-journal/journal.py snapshot   # planı ve Time Machine olasılıklarını sakla
 python3 day-trader/trader-journal/journal.py import     # dolumlar -> puanlanmış işlemler
 python3 day-trader/trader-journal/journal.py stats      # karne
-python3 -m unittest discover -s day-trader/tests        # 329 test, çevrimdışı
+python3 -m unittest discover -s day-trader/tests        # 340 test, çevrimdışı
 ```
+
+**Freqtrade'den uyarlanan fikirler** ([freqtrade/freqtrade](https://github.com/freqtrade/freqtrade), GPLv3: kod kopyalanmadı, yalnızca kavramlar sıfırdan yazıldı):
+
+- `/trader-risk` için isteğe bağlı **protections** (koruma kilitleri), `trader/journal.json`'u okur ve yeni girişleri kilitler;
+  çıkışlar asla kilitlenmez. `cooldown` (aynı hisseye N dakika tekrar girme yok), `stop_guard` (son D günde N stop → tüm girişler kapalı),
+  `max_drawdown` (son D günde zirveden X$ düşüş → tüm girişler kapalı), `losing_setup` (son N işlemi ortalama F R altında kalan strateji kilitlenir).
+- `/trader-journal` karnesine **SQN** (Van Tharp, R üzerinden), **expectancy ratio**, günlük **Sharpe/Sortino** ve
+  "bu sonuç şans mı?" sorusu için **t-testi / p-değeri** eklendi.
 
 Yatırım tavsiyesi değildir. Hiçbir emir kullanıcının açık "evet"i olmadan verilmez; varsayılan kâğıt üzerinde işlemdir (paper trading).
