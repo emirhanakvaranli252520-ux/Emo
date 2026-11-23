@@ -21,7 +21,11 @@ description: >-
   on the right calendar for crypto, CME futures, US stocks or BIST. It treats
   untaken STH / STL as fuel: how fast this chart takes them against a random
   baseline, the nearest untaken ones, a first target (T1) at the nearest one,
-  and a warning when a stop sits inside that liquidity.
+  and a warning when a stop sits inside that liquidity. Its lower-timeframe
+  confirmation follows each H1 zone on M5: the touch, then a CHoCH, with the
+  entry at the CHoCH close, the stop at the low made in the zone, the user's
+  1.5-3.5 reward:risk band applied, and a comparison of waiting for the
+  CHoCH against entering at the H1 gap.
   Works on US index futures (NQ=F, ES=F), crypto majors (Binance BTCUSDT or
   Yahoo BTC-USD), stocks and BIST, on H1 by default, in Turkey time. Use when
   the user says "market structure", "ITH", "ITL", "LTH", "LTL", "STH", "STL",

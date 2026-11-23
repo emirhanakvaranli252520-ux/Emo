@@ -103,6 +103,26 @@ def http_get(url):
     raise StructureError("%s did not answer (%s)" % (url.split("?")[0], last))
 
 
+def binance_pages(sym, interval, want, end_ms=None):
+    """Binance gives 1000 klines a request: walk back page by page until `want` bars, oldest first."""
+    rows, end = [], end_ms
+    while len(rows) < want:
+        n = min(1000, want - len(rows))
+        url = "https://api.binance.com/api/v3/klines?symbol=%s&interval=%s&limit=%d" % (sym, interval, n)
+        if end is not None:
+            url += "&endTime=%d" % end
+        page = json.loads(http_get(url))
+        if not isinstance(page, list):
+            raise StructureError("Binance answered: %s" % (page.get("msg") if isinstance(page, dict) else page))
+        if not page:
+            break
+        rows = page + rows
+        end = int(page[0][0]) - 1
+        if len(page) < n:
+            break
+    return json.dumps(rows)
+
+
 def read_text(path):
     if path.endswith(".gz"):
         with gzip.open(path, "rt", encoding="utf-8") as fh:
@@ -997,6 +1017,287 @@ def render_levels(doc):
     return "\n".join(out)
 
 
+# ---------------------------------------------------------------- lower-timeframe confirmation
+
+def ltf_pivots(bars, n=2):
+    """Fractal swing highs and lows on the lower timeframe: n bars each side, known n bars later."""
+    hs, ls = [], []
+    for i in range(n, len(bars) - n):
+        h, l = bars[i]["h"], bars[i]["l"]
+        if all(h > bars[k]["h"] for k in range(i - n, i)) and all(h >= bars[k]["h"] for k in range(i + 1, i + n + 1)):
+            hs.append({"i": i, "level": h, "known": i + n})
+        if all(l < bars[k]["l"] for k in range(i - n, i)) and all(l <= bars[k]["l"] for k in range(i + 1, i + n + 1)):
+            ls.append({"i": i, "level": l, "known": i + n})
+    return hs, ls
+
+
+def _follow(lb, j, stop, target, up, hold):
+    """From bar j+1: which came first within `hold` bars, the stop or the target. A bar touching both
+    counts as stopped."""
+    for k in range(j + 1, min(len(lb), j + 1 + hold)):
+        x = lb[k]
+        if (x["l"] <= stop) if up else (x["h"] >= stop):
+            return "stopped", tr_time(x["t"])
+        if target is not None and ((x["h"] >= target) if up else (x["l"] <= target)):
+            return "target", tr_time(x["t"])
+    return "open", None
+
+
+def ltf_atr(lb, n=14):
+    out, trs = [], []
+    for i, b in enumerate(lb):
+        trs.append(b["h"] - b["l"] if i == 0 else true_range(lb, i))
+        w = trs[-n:]
+        out.append(sum(w) / len(w))
+    return out
+
+
+def ltf_confirm(lb, side, zone_lo, zone_hi, htf_stop, target, start, piv=None, window=36, lookback=24,
+                hold=288, swing=2, atr=None, rr_band=(1.5, 3.5), buffer=0.0):
+    """Watch the lower timeframe from bar `start`: the first touch of the zone, then a CHoCH in the trade's
+    direction (a close through the last LTF swing that came before the extreme made in the zone), before
+    a close through the higher-timeframe stop and within `window` bars of the touch.
+    Returns the state, and for a confirmation the entry (the CHoCH close), the stop (the LTF extreme),
+    the R:R to the target and what happened next (target or stop first, within `hold` bars)."""
+    n = len(lb)
+    up = side == "long"
+    atr = atr or ltf_atr(lb)
+    hs, ls = piv or ltf_pivots(lb, swing)
+    opp = hs if up else ls                          # the swings a CHoCH must close through
+    res = {"state": "waiting for a touch", "touch": None}
+    j0 = None
+    for j in range(start, n):
+        b = lb[j]
+        if (b["c"] < htf_stop) if up else (b["c"] > htf_stop):
+            res["state"] = "invalid before a touch"
+            res["at"] = tr_time(b["t"])
+            return res
+        if (b["l"] <= zone_hi) if up else (b["h"] >= zone_lo):
+            j0 = j
+            break
+    if j0 is None:
+        return res
+    res.update(state="touched, waiting for a CHoCH", touch=tr_time(lb[j0]["t"]))
+    ext_i = j0
+    for j in range(j0, min(n, j0 + window + 1)):
+        b = lb[j]
+        if (b["l"] < lb[ext_i]["l"]) if up else (b["h"] > lb[ext_i]["h"]):
+            ext_i = j
+        if (b["c"] < htf_stop) if up else (b["c"] > htf_stop):
+            res.update(state="invalidated (closed through the HTF stop)", at=tr_time(b["t"]))
+            return res
+        cands = [p for p in opp if p["known"] <= j and j0 - lookback <= p["i"] < ext_i]
+        if not cands:
+            continue
+        key = cands[-1]
+        res["watch"] = r2(key["level"])
+        if (b["c"] > key["level"]) if up else (b["c"] < key["level"]):
+            entry = b["c"]
+            pad = buffer * atr[j]
+            stop = lb[ext_i]["l"] - pad if up else lb[ext_i]["h"] + pad
+            risk = abs(entry - stop)
+            if risk <= 0:
+                continue
+            body = abs(b["c"] - b["o"])
+            disp = body >= atr[j]
+            gap = None
+            for k in range(ext_i + 1, j):
+                a_, c_ = lb[k - 1], lb[k + 1]
+                if up and a_["h"] < c_["l"]:
+                    gap = (a_["h"], c_["l"])
+                elif not up and a_["l"] > c_["h"]:
+                    gap = (c_["h"], a_["l"])
+            res.update(state="confirmed", at=tr_time(b["t"]), choch_level=r2(key["level"]), entry=r2(entry),
+                       stop=r2(stop), risk=r2(risk), displacement=bool(disp or gap),
+                       ltf_fvg=[r2(gap[0]), r2(gap[1])] if gap else None,
+                       rr=r2(abs(target - entry) / risk) if target is not None else None,
+                       target=r2(target))
+            if target is not None and ((target <= entry) if up else (target >= entry)):
+                res["state"] = "confirmed past the target"
+                return res
+            res["result"], res["result_at"] = _follow(lb, j, stop, target, up, hold)
+            # your band: skip under rr_min, take profit at rr_max when the HTF target is further
+            lo, hi = rr_band
+            rr = res["rr"]
+            if rr is None or rr < lo:
+                res["band"] = {"action": "skip (R:R under %.1f)" % lo}
+            else:
+                tgt = target
+                if rr > hi:
+                    tgt = entry + hi * risk if up else entry - hi * risk
+                r_, at_ = _follow(lb, j, stop, tgt, up, hold)
+                res["band"] = {"action": "take profit at %.1fR" % hi if rr > hi else "full HTF target",
+                               "target": r2(tgt), "rr": r2(min(rr, hi)), "result": r_, "result_at": at_}
+            return res
+    if j0 + window < n:
+        res["state"] = "no CHoCH within the window"
+    return res
+
+
+def confirm_sequences(lbars, ltf, htf, now_utc, window=36, swing=2, hold=288, rr_band=(1.5, 3.5),
+                      fvg_window=24, buffer=0.0):
+    """Every higher-timeframe LTL -> ITL -> FVG sequence (built from the same data), each followed on the
+    lower timeframe; plus the comparison: entering at the HTF gap vs waiting for the LTF CHoCH."""
+    lbars = closed_only(lbars, ltf, now_utc)
+    step_h = SECONDS[htf]
+    if step_h <= SECONDS[ltf]:
+        raise StructureError("--htf must be a bigger bar than the data's %s" % ltf)
+    hbars = closed_only(resample(lbars, htf), htf, now_utc, resampled=True)
+    if len(hbars) < 30:
+        raise StructureError("only %d %s bars from this data: fetch more history (--days, --range)" % (len(hbars), htf))
+    t = tiers(hbars)
+    setups = scan_setups(hbars, t, fvgs(hbars), fvg_window)
+    piv = ltf_pivots(lbars, swing)
+    atr = ltf_atr(lbars)
+    times = [b["t"] for b in lbars]
+    rows = []
+    for s in setups:
+        k = s["_known"]
+        start_t = hbars[k]["t"] + step_h            # the first LTF bar after the sequence became visible
+        start = next((i for i, x in enumerate(times) if x >= start_t), None)
+        if start is None:
+            continue
+        side = "long" if s["dir"] == "bullish" else "short"
+        p = s["plan"]
+        res = ltf_confirm(lbars, side, s["fvg"]["bottom"], s["fvg"]["top"], p["stop"], p["target"], start,
+                          piv, window, hold=hold, swing=swing, atr=atr, rr_band=rr_band, buffer=buffer)
+        htf_r = {"target": p["reward_risk"], "stopped": -1.0}.get(s["status"])
+        ltf_r = band_r = None
+        if res.get("result") == "target":
+            ltf_r = res["rr"]
+        elif res.get("result") == "stopped":
+            ltf_r = -1.0
+        bd = res.get("band") or {}
+        if bd.get("result") == "target":
+            band_r = bd["rr"]
+        elif bd.get("result") == "stopped":
+            band_r = -1.0
+        rows.append({"dir": s["dir"], "known_at": s["known_at"], "zone": [s["fvg"]["bottom"], s["fvg"]["top"]],
+                     "htf_plan": {"entry": p["entry"], "stop": p["stop"], "target": p["target"],
+                                  "rr": p["reward_risk"], "status": s["status"]},
+                     "ltf": res, "htf_r": htf_r, "ltf_r": ltf_r, "band_r": band_r})
+    lo, hi = rr_band
+    for r in rows:
+        rr = r["ltf"].get("rr")
+        if rr is not None:
+            r["ltf"]["rr_band"] = "in band" if lo <= rr <= hi else ("under %.1f" % lo if rr < lo else "over %.1f" % hi)
+
+    def tally(key):
+        xs = [r[key] for r in rows if r[key] is not None]
+        return {"trades": len(xs), "wins": sum(1 for x in xs if x > 0), "total_r": r2(sum(xs)),
+                "avg_r": r2(sum(xs) / len(xs)) if xs else None}
+    conf = [r for r in rows if r["ltf"]["state"].startswith("confirmed")]
+    return {
+        "created_by": "trader-structure", "mode": "confirm", "ltf": ltf, "htf": htf,
+        "ltf_bars": len(lbars), "htf_bars": len(hbars), "from": tr_time(lbars[0]["t"]), "to": tr_time(lbars[-1]["t"]),
+        "price": r2(lbars[-1]["c"]), "timezone": "Turkey (UTC+3)", "rr_band": list(rr_band),
+        "sequences": rows[-12:],
+        "live": [r for r in rows if r["ltf"]["state"] in ("waiting for a touch", "touched, waiting for a CHoCH")
+                 or (r["ltf"].get("result") == "open")],
+        "compare": {"htf_entry": tally("htf_r"), "ltf_confirmed": tally("ltf_r"),
+                    "ltf_with_band": tally("band_r"),
+                    "skipped_by_band": sum(1 for r in conf if (r["ltf"].get("band") or {}).get("action", "")
+                                           .startswith("skip")),
+                    "touched": sum(1 for r in rows if r["ltf"]["touch"]),
+                    "confirmed": len(conf),
+                    "no_choch": sum(1 for r in rows if r["ltf"]["state"] == "no CHoCH within the window"),
+                    "invalidated": sum(1 for r in rows if r["ltf"]["state"].startswith("invalid"))},
+        "note": ("HTF entry = a limit at the gap with the stop at the ITL / ITH; LTF entry = the close of the "
+                 "lower-timeframe CHoCH after a touch, stop at the low (high) made in the zone. R counts a target "
+                 "as its planned R:R and a stop as -1; open trades are left out. A few dozen sequences prove "
+                 "nothing. Not financial advice."),
+    }
+
+
+def confirm_zone(lbars, ltf, now_utc, side, lo, hi, htf_stop, target, since_utc, window=36, swing=2, hold=288,
+                 rr_band=(1.5, 3.5), buffer=0.0):
+    """A zone the user gives: follow it on the lower timeframe from `since`."""
+    lbars = closed_only(lbars, ltf, now_utc)
+    start = next((i for i, b in enumerate(lbars) if b["t"] >= epoch(since_utc)), None)
+    if start is None:
+        raise StructureError("no %s bars after --since" % ltf)
+    res = ltf_confirm(lbars, side, lo, hi, htf_stop, target, start, None, window, hold=hold, swing=swing,
+                      rr_band=rr_band, buffer=buffer)
+    rr = res.get("rr")
+    if rr is not None:
+        res["rr_band"] = "in band" if rr_band[0] <= rr <= rr_band[1] else (
+            "under %.1f" % rr_band[0] if rr < rr_band[0] else "over %.1f" % rr_band[1])
+    return {"created_by": "trader-structure", "mode": "confirm-zone", "ltf": ltf, "side": side,
+            "zone": [r2(lo), r2(hi)], "htf_stop": r2(htf_stop), "target": r2(target),
+            "since": tr_time(lbars[start]["t"]), "last_bar": tr_time(lbars[-1]["t"]), "price": r2(lbars[-1]["c"]),
+            "timezone": "Turkey (UTC+3)", "result": res,
+            "note": "A CHoCH is a confirmation of intent, not a guarantee. Not financial advice."}
+
+
+def ltf_line(res):
+    st_ = res["state"]
+    if st_.startswith("confirmed"):
+        line = "%s %s: CHoCH through %.2f, entry %.2f stop %.2f target %s R:R %s%s%s" % (
+            st_, res["at"][5:], res["choch_level"], res["entry"], res["stop"],
+            "n/a" if res.get("target") is None else "%.2f" % res["target"],
+            "n/a" if res.get("rr") is None else "%.2f" % res["rr"],
+            "" if res.get("rr_band") in (None, "in band") else " (%s)" % res["rr_band"],
+            ", displacement" if res.get("displacement") else "")
+        if res.get("ltf_fvg"):
+            line += "; LTF FVG %.2f-%.2f for a limit" % tuple(res["ltf_fvg"])
+        if res.get("result"):
+            line += " -> %s%s" % (res["result"], (" " + res["result_at"][5:]) if res.get("result_at") else "")
+        bd = res.get("band")
+        if bd:
+            line += "\n               band: %s" % bd["action"]
+            if bd.get("result"):
+                line += ", target %.2f (%.1fR) -> %s%s" % (bd["target"], bd["rr"], bd["result"],
+                                                         (" " + bd["result_at"][5:]) if bd.get("result_at") else "")
+        return line
+    line = st_
+    if res.get("touch"):
+        line += " (touched %s)" % res["touch"][5:]
+    if res.get("watch") is not None and st_.startswith("touched"):
+        line += "; a close %s %.2f confirms" % ("through", res["watch"])
+    if res.get("at") and not st_.startswith("touched"):
+        line += " %s" % res["at"][5:]
+    return line
+
+
+def render_confirm(doc):
+    out = ["%s -> %s confirmation, %s to %s (Turkey time), last close %.2f, R:R band %.1f-%.1f" % (
+        doc["htf"], doc["ltf"], doc["from"], doc["to"], doc["price"], doc["rr_band"][0], doc["rr_band"][1]), ""]
+    if not doc["sequences"]:
+        out.append("No HTF sequence in this data.")
+    for r in doc["sequences"]:
+        h = r["htf_plan"]
+        out.append("  %-7s known %s zone %.2f-%.2f | HTF: entry %.2f stop %.2f target %.2f R:R %s -> %s" % (
+            r["dir"], r["known_at"][5:], r["zone"][0], r["zone"][1], h["entry"], h["stop"], h["target"],
+            "n/a" if h["rr"] is None else "%.2f" % h["rr"], h["status"]))
+        out.append("          LTF: " + ltf_line(r["ltf"]))
+    c = doc["compare"]
+    a, b, k = c["htf_entry"], c["ltf_confirmed"], c["ltf_with_band"]
+    out += ["", "Compare (closed trades only):",
+            "  enter at the HTF gap      %d trades, %d won, total %s R, avg %s R" % (
+                a["trades"], a["wins"], a["total_r"], a["avg_r"]),
+            "  LTF CHoCH, HTF target     %d trades, %d won, total %s R, avg %s R" % (
+                b["trades"], b["wins"], b["total_r"], b["avg_r"]),
+            "  LTF CHoCH + your band     %d trades, %d won, total %s R, avg %s R (%d skipped under %.1f, "
+            "targets over %.1fR taken at %.1fR)" % (k["trades"], k["wins"], k["total_r"], k["avg_r"],
+                                                   c["skipped_by_band"], doc["rr_band"][0], doc["rr_band"][1],
+                                                   doc["rr_band"][1]),
+            "  touched %d, confirmed %d, no CHoCH %d, invalidated %d" % (
+                c["touched"], c["confirmed"], c["no_choch"], c["invalidated"])]
+    if doc["live"]:
+        out += ["", "Live now:"]
+        for r in doc["live"]:
+            out.append("  %s zone %.2f-%.2f: %s" % (r["dir"], r["zone"][0], r["zone"][1], ltf_line(r["ltf"])))
+    out += ["", doc["note"]]
+    return "\n".join(out)
+
+
+def render_confirm_zone(doc):
+    return "\n".join(["%s zone %.2f-%.2f on %s since %s, HTF stop %.2f, target %s; last close %.2f (%s)" % (
+        doc["side"], doc["zone"][0], doc["zone"][1], doc["ltf"], doc["since"], doc["htf_stop"],
+        "n/a" if doc["target"] is None else "%.2f" % doc["target"], doc["price"], doc["last_bar"]),
+        "  " + ltf_line(doc["result"]), "", doc["note"]])
+
+
 # ---------------------------------------------------------------- output
 
 def render(doc):
@@ -1154,9 +1455,10 @@ def load(a):
     if a.offline:
         text = read_text(a.offline)
     elif a.source == "binance":
-        end = "&endTime=%d" % (epoch(now) * 1000) if a.at else ""
-        text = http_get("https://api.binance.com/api/v3/klines?symbol=%s&interval=%s&limit=%d%s"
-                        % (sym, BINANCE_INTERVAL[interval], a.limit or (1000 if a.cmd == "levels" else 720), end))
+        want = a.limit or (1000 if a.cmd == "levels" else 720)
+        if getattr(a, "days", None):
+            want = int(a.days * 86400 // SECONDS[interval])
+        text = binance_pages(sym, BINANCE_INTERVAL[interval], want, epoch(now) * 1000 if a.at else None)
     else:
         fetch = a.fetch_interval or ("60m" if interval == "1h" else interval)
         text = http_get("https://query2.finance.yahoo.com/v8/finance/chart/%s?range=%s&interval=%s"
@@ -1208,6 +1510,30 @@ def cmd_levels(a):
     return json.dumps(doc, indent=2) if a.json else render_levels(doc)
 
 
+def cmd_confirm(a):
+    a.interval = a.ltf
+    if a.source == "binance" and not a.offline and a.days is None:
+        a.days = 30.0
+    sym, bars, interval, now, _ = load(a)
+    band = (a.rr_min, a.rr_max)
+    if a.zone:
+        m = re.match(r"^\s*([0-9.]+)\s*-\s*([0-9.]+)\s*$", a.zone)
+        if not m or a.side is None or a.stop is None:
+            raise StructureError("a manual zone needs --zone LOW-HIGH, --side long|short and --stop PRICE")
+        lo, hi = sorted((float(m.group(1)), float(m.group(2))))
+        since = parse_at(a.since) if a.since else now - datetime.timedelta(days=1)
+        doc = confirm_zone(bars, interval, now, a.side, lo, hi, a.stop, a.target, since, a.window, a.swing,
+                           a.hold, band, a.buffer)
+        out = render_confirm_zone(doc)
+    else:
+        doc = confirm_sequences(bars, interval, a.htf, now, a.window, a.swing, a.hold, band, buffer=a.buffer)
+        out = render_confirm(doc)
+    doc["symbol"] = sym
+    if a.write:
+        write_json(a.write, doc)
+    return json.dumps(doc, indent=2) if a.json else out
+
+
 def build_parser():
     ap = argparse.ArgumentParser(description="Advanced market structure: STH/ITH/LTH, STL/ITL/LTL and the "
                                              "LTL -> ITL -> FVG sequence.")
@@ -1243,6 +1569,26 @@ def build_parser():
     p.add_argument("--reclaim", type=int, default=3,
                    help="bars a close outside the box may last and still count as a raid (default 3)")
     p.set_defaults(fn=cmd_range)
+
+    p = sub.add_parser("confirm", help="lower-timeframe confirmation: HTF zone touched, then an LTF CHoCH")
+    common(p, "trader/confirm.json")
+    p.set_defaults(interval=None)
+    p.add_argument("--ltf", default="5m", help="the confirmation timeframe, the data's bar size (default 5m)")
+    p.add_argument("--htf", default="1h", help="the timeframe of the zones (default 1h, built from the LTF data)")
+    p.add_argument("--days", type=float, help="Binance: days of LTF history to fetch in pages (default 30)")
+    p.add_argument("--window", type=int, default=36, help="LTF bars after the touch to wait for the CHoCH (default 36)")
+    p.add_argument("--swing", type=int, default=2, help="LTF swing size in bars each side (default 2)")
+    p.add_argument("--hold", type=int, default=288, help="LTF bars to follow a confirmed trade (default 288)")
+    p.add_argument("--rr-min", type=float, default=1.5)
+    p.add_argument("--rr-max", type=float, default=3.5)
+    p.add_argument("--buffer", type=float, default=0.0,
+                   help="put the stop this many LTF ATRs past the LTF low / high (default 0)")
+    p.add_argument("--zone", help="your own zone instead of the HTF sequences: LOW-HIGH")
+    p.add_argument("--side", choices=["long", "short"])
+    p.add_argument("--stop", type=float, help="the zone's invalidation (HTF stop)")
+    p.add_argument("--target", type=float)
+    p.add_argument("--since", help="Turkey time to start watching the zone (default one day back)")
+    p.set_defaults(fn=cmd_confirm)
 
     p = sub.add_parser("levels", help="key levels: day / week / month opens and ranges, the Monday range")
     common(p, "trader/levels.json")

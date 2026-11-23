@@ -326,3 +326,99 @@ class Liquidity(unittest.TestCase):
         for s in warned:
             self.assertIn("sits just", s["plan"]["stop_warning"])
         self.assertGreaterEqual(d["t1_record"]["with_t1"], d["t1_record"]["t1_hit"])
+
+
+def ltf_path(prices, step=4):
+    """5-minute bars walking through the given prices, `step` bars per leg."""
+    bars = []
+    for a, b in zip(prices, prices[1:]):
+        for k in range(step):
+            o = a + (b - a) * k / step
+            c = a + (b - a) * (k + 1) / step
+            bars.append({"t": T0 + 300 * len(bars), "o": o, "h": max(o, c) + 0.02, "l": min(o, c) - 0.02,
+                         "c": c, "v": 1})
+    return bars
+
+
+class LowerTimeframe(unittest.TestCase):
+    # down into the 100-101 zone with a lower high at 102.5, a low at 99.6, then up through 102.5 and on to 117
+    PATH = [104, 101.8, 102.5, 99.6, 103.2, 102.6, 117]
+
+    def test_touch_choch_entry_stop_and_target(self):
+        lb = ltf_path(self.PATH)
+        r = st.ltf_confirm(lb, "long", 100, 101, 98, 120, 0, rr_band=(1.5, 3.5), window=40)
+        self.assertEqual(r["state"], "confirmed")
+        self.assertEqual(r["choch_level"], 102.52)
+        self.assertEqual((r["entry"], r["stop"]), (103.2, 99.58))          # the CHoCH close, the low in the zone
+        self.assertEqual(r["rr"], 4.64)
+        self.assertEqual(r["result"], "open")                              # 120 never came
+        self.assertEqual(r["band"]["action"], "take profit at 3.5R")
+        self.assertEqual((r["band"]["target"], r["band"]["result"]), (115.87, "target"))
+
+    def test_band_skips_a_small_reward(self):
+        lb = ltf_path(self.PATH)
+        r = st.ltf_confirm(lb, "long", 100, 101, 98, 103.6, 0, rr_band=(1.5, 3.5), window=40)
+        self.assertTrue(r["band"]["action"].startswith("skip"))
+
+    def test_buffer_moves_the_stop(self):
+        lb = ltf_path(self.PATH)
+        a = st.ltf_confirm(lb, "long", 100, 101, 98, 107, 0, window=40)
+        b = st.ltf_confirm(lb, "long", 100, 101, 98, 107, 0, window=40, buffer=0.5)
+        self.assertLess(b["stop"], a["stop"])
+
+    def test_htf_stop_invalidates_and_no_choch(self):
+        lb = ltf_path([104, 101.8, 102.5, 99.6, 97.5, 97])
+        self.assertTrue(st.ltf_confirm(lb, "long", 100, 101, 98, 107, 0)["state"].startswith("invalidated"))
+        lb = ltf_path([104, 101.8, 102.5, 99.6, 100.5, 100.0, 100.6, 100.1] + [100.3, 100.2] * 12)
+        self.assertEqual(st.ltf_confirm(lb, "long", 100, 101, 98, 107, 0, window=20)["state"],
+                         "no CHoCH within the window")
+
+    def test_short_side_mirror(self):
+        lb = ltf_path([96, 98.2, 97.5, 100.4, 96.8, 97.4, 92])
+        r = st.ltf_confirm(lb, "short", 99, 100, 102, 93, 0, window=40)
+        self.assertEqual((r["state"], r["result"]), ("confirmed", "target"))
+        self.assertEqual(r["stop"], 100.42)
+
+    def test_binance_pages(self):
+        calls = []
+        old = st.http_get
+
+        def fake(url):
+            calls.append(url)
+            end = int(url.split("endTime=")[1]) if "endTime=" in url else 10 ** 13
+            n = int(url.split("limit=")[1].split("&")[0])
+            start = end - n * 300000
+            return json.dumps([[start + 300000 * k, "1", "1", "1", "1", "1"] for k in range(n)])
+        st.http_get = fake
+        try:
+            rows = json.loads(st.binance_pages("BTCUSDT", "5m", 2500))
+        finally:
+            st.http_get = old
+        self.assertEqual(len(rows), 2500)
+        self.assertEqual(len(calls), 3)
+        self.assertEqual(rows, sorted(rows, key=lambda r: r[0]))
+
+    def test_sequences_on_real_data(self):
+        out, err = io.StringIO(), io.StringIO()
+        with redirect_stdout(out), redirect_stderr(err):
+            code = st.main(["confirm", "TSLA", "--offline", TSLA, "--at", "2026-10-19 17:15", "--json"])
+        self.assertEqual(code, 0, err.getvalue())
+        d = json.loads(out.getvalue())
+        self.assertEqual((d["ltf"], d["htf"]), ("5m", "1h"))
+        c = d["compare"]
+        self.assertEqual(c["touched"], 9)
+        self.assertEqual(c["confirmed"], 5)
+        for r in d["sequences"]:
+            l_ = r["ltf"]
+            if l_["state"] == "confirmed":
+                if r["dir"] == "bullish":
+                    self.assertLess(l_["stop"], l_["entry"])
+                else:
+                    self.assertGreater(l_["stop"], l_["entry"])
+                self.assertGreaterEqual(l_["at"], r["known_at"][:13])
+        with redirect_stdout(io.StringIO()) as o, redirect_stderr(io.StringIO()):
+            code = st.main(["confirm", "TSLA", "--offline", TSLA, "--at", "2026-10-19 17:15",
+                            "--zone", "355.4-356.4", "--side", "long", "--stop", "349", "--target", "370",
+                            "--since", "2026-10-19 16:30"])
+        self.assertEqual(code, 0)
+        self.assertIn("zone 355.40-356.40", o.getvalue())
