@@ -296,6 +296,34 @@ def scan_setups(bars, t, gaps, window=24, min_gap_pct=0.0):
             s["plan"] = {"entry": r2(entry), "stop": r2(stop), "target": r2(target), "target_from": target_from,
                          "risk": r2(risk),
                          "reward_risk": r2(abs(target - entry) / risk) if target is not None and risk > 0 else None}
+            # STH / STL are fuel: the nearest untaken short-term point between the entry and the target is
+            # the first target (T1); an untaken one just past the stop is liquidity a run would take with it
+            near = [p for p in (t["STH"] if side == 1 else t["STL"]) if untaken(p)
+                    and ((p["level"] < target) if side == 1 else (p["level"] > target))]
+            t1 = None
+            if near:
+                t1 = min(near, key=lambda p: p["level"]) if side == 1 else max(near, key=lambda p: p["level"])
+                s["plan"]["target1"] = r2(t1["level"])
+                s["plan"]["target1_from"] = "untaken %s" % ("STH" if side == 1 else "STL")
+                s["plan"]["rr1"] = r2(abs(t1["level"] - entry) / risk) if risk > 0 else None
+
+            def untaken_beyond_stop(p):
+                if p["known"] > known:
+                    return False
+                if not ((p["level"] < stop) if side == 1 else (p["level"] > stop)):
+                    return False
+                if abs(p["level"] - stop) > 0.25 * risk:
+                    return False
+                return not any((bars[j]["l"] < p["level"]) if side == 1 else (bars[j]["h"] > p["level"])
+                               for j in range(p["i"] + 1, known + 1))
+            bait = [p for p in (t["STL"] if side == 1 else t["STH"]) if untaken_beyond_stop(p)]
+            if bait:
+                b0 = min(bait, key=lambda p: p["level"]) if side == 1 else max(bait, key=lambda p: p["level"])
+                s["plan"]["stop_warning"] = (
+                    "untaken %s at %.2f sits just %s the stop: a run on that liquidity would take the stop too; "
+                    "a stop past it would be %.2f" % ("STL" if side == 1 else "STH", b0["level"],
+                                                      "under" if side == 1 else "over",
+                                                      b0["level"] - 0.01 if side == 1 else b0["level"] + 0.01))
             # what happened after it was known: waiting -> tapped (price reached the FVG) -> target or
             # stopped; invalid if it closed through the ITL/ITH before a tap; missed if it ran to the
             # target without a tap. A bar that touches both stop and target counts as stopped.
@@ -321,8 +349,68 @@ def scan_setups(bars, t, gaps, window=24, min_gap_pct=0.0):
                     break
             s["status"] = status
             s["status_at"] = tr_time(bars[when]["t"]) if when is not None else None
+            # did the first target (the STH / STL fuel) fill after a tap, before the stop?
+            if t1 is not None and status in ("tapped", "target", "stopped"):
+                tap = next(j for j in range(known + 1, n) if ((bars[j]["l"] <= entry) if side == 1
+                                                               else (bars[j]["h"] >= entry)))
+                hit = None
+                for j in range(tap, n):
+                    bj = bars[j]
+                    if (bj["l"] <= stop) if side == 1 else (bj["h"] >= stop):
+                        break
+                    if (bj["h"] >= t1["level"]) if side == 1 else (bj["l"] <= t1["level"]):
+                        hit = j
+                        break
+                s["t1_hit"] = tr_time(bars[hit]["t"]) if hit is not None else None
             out.append(s)
     out.sort(key=lambda s: s["_known"])
+    return out
+
+
+def liquidity_map(bars, t, horizons=(6, 12, 24, 48)):
+    """How fast this chart's STH / STL (and ITH / ITL) get taken, and which are still untaken.
+    Taken = a later bar trades through the level (a high over an STH, a low under an STL), counted
+    from the bar it became known. Only points with the full horizon after them count for that horizon."""
+    n = len(bars)
+    out = {}
+    base_h = 24
+    # the baseline: from any bar, how often does price reach a level the same distance away within 24 bars?
+    fwd_up = [max(bars[k]["h"] for k in range(i + 1, i + base_h + 1)) - bars[i]["c"] for i in range(n - base_h)]
+    fwd_dn = [bars[i]["c"] - min(bars[k]["l"] for k in range(i + 1, i + base_h + 1)) for i in range(n - base_h)]
+    for name in ("STH", "STL", "ITH", "ITL"):
+        high = name.endswith("H")
+        rows = []
+        for p in t[name]:
+            took = None
+            for j in range(p["known"], n):
+                if (bars[j]["h"] > p["level"]) if high else (bars[j]["l"] < p["level"]):
+                    took = j - p["known"]
+                    break
+            rows.append((p, took))
+        stats = {"points": len(rows)}
+        for h in horizons:
+            elig = [(p, k) for p, k in rows if n - 1 - p["known"] >= h]
+            if elig:
+                stats["taken_within_%d" % h] = r2(100.0 * sum(1 for p, k in elig if k is not None and k <= h)
+                                                  / len(elig))
+        elig = [p for p, k in rows if n - 1 - p["known"] >= base_h]
+        fwd = fwd_up if high else fwd_dn
+        if elig and fwd:
+            probs = []
+            for p in elig:
+                d = (p["level"] - bars[p["known"]]["c"]) if high else (bars[p["known"]]["c"] - p["level"])
+                probs.append(sum(1 for x in fwd if x > d) / float(len(fwd)))
+            stats["baseline_within_24"] = r2(100.0 * sum(probs) / len(probs))
+        times = sorted(k for p, k in rows if k is not None)
+        stats["median_bars_to_take"] = times[len(times) // 2] if times else None
+        untaken = [p for p, k in rows if k is None]
+        price = bars[-1]["c"]
+        untaken.sort(key=lambda p: abs(p["level"] - price))
+        stats["untaken"] = [{"level": r2(p["level"]), "at": tr_time(bars[p["i"]]["t"]),
+                             "age_bars": n - 1 - p["i"], "distance_pct": r2(100.0 * (p["level"] / price - 1))}
+                            for p in untaken[:5]]
+        stats["untaken_count"] = len(untaken)
+        out[name] = stats
     return out
 
 
@@ -356,6 +444,7 @@ def analyze(sym, bars, interval, now_utc, window=24, recent=5, min_gap_pct=0.0, 
     setups = scan_setups(bars, t, gaps, window, min_gap_pct)
     reg = regime(bars, range_window)
     boxes = amd_boxes(bars, reg, range_window)
+    liq = liquidity_map(bars, t)
     for s in setups:
         k = s["_known"]
         s["regime"] = reg[k]["state"]
@@ -391,6 +480,9 @@ def analyze(sym, bars, interval, now_utc, window=24, recent=5, min_gap_pct=0.0, 
                    "stopped": sum(1 for s in done if s["status"] == "stopped"),
                    "missed": sum(1 for s in setups if s["status"] == "missed"),
                    "invalid": sum(1 for s in setups if s["status"] == "invalid")},
+        "liquidity": liq,
+        "t1_record": {"with_t1": sum(1 for s in setups if "t1_hit" in s),
+                      "t1_hit": sum(1 for s in setups if s.get("t1_hit"))},
         "by_regime": record_by(setups, lambda s: "inside a range box" if s["in_range_box"] else
                                "regime " + s["regime"]),
         "hidden_in_range": hidden,
@@ -913,6 +1005,28 @@ def render(doc):
         ps = doc["points"][k]
         if ps:
             out.append("%s  " % k + "   ".join("%.2f @ %s" % (p["level"], p["at"][5:]) for p in ps))
+    liq = doc.get("liquidity")
+    if liq:
+        out += ["", "Short-term liquidity (STH / STL are fuel price comes back for)"]
+        for name in ("STH", "STL", "ITH", "ITL"):
+            L = liq[name]
+            if not L["points"]:
+                continue
+            within = ", ".join("%s%% in %s" % (("%.0f" % L[k]), k.split("_")[-1]) for k in
+                               ("taken_within_6", "taken_within_12", "taken_within_24", "taken_within_48") if k in L)
+            out.append("  %s  %d points, taken: %s bars; median %s bars; %d untaken" % (
+                name, L["points"], within or "n/a", "n/a" if L["median_bars_to_take"] is None
+                else L["median_bars_to_take"], L["untaken_count"]))
+            if L.get("baseline_within_24") is not None and "taken_within_24" in L:
+                edge = L["taken_within_24"] - L["baseline_within_24"]
+                out.append("        vs any level as far away: %.0f%% in 24 bars, so %s by %+.0f points" % (
+                    L["baseline_within_24"], "pulled harder" if edge > 5 else "about the same" if edge > -5
+                    else "pulled less", edge))
+        for name, word in (("STH", "above"), ("STL", "below")):
+            u = [x for x in liq[name]["untaken"]][:3]
+            if u:
+                out.append("  untaken %s %s: %s" % (name, word, "   ".join(
+                    "%.2f (%+.2f%%, %s)" % (x["level"], x["distance_pct"], x["at"][5:]) for x in u)))
     out.append("")
     if not doc["setups"]:
         out.append("No LTL -> ITL -> FVG (or LTH -> ITH -> FVG) sequence in this data.")
@@ -927,12 +1041,23 @@ def render(doc):
                 s["known_at"][5:], " [range]" if s.get("in_range_box") else "", s["status"], (" " + s["status_at"][5:]) if s["status_at"] else "",
                 p["entry"], p["stop"], "n/a" if p["target"] is None else "%.2f" % p["target"],
                 "n/a" if p["reward_risk"] is None else "%.2f" % p["reward_risk"]))
+            if p.get("target1") is not None:
+                out.append("          T1 %.2f (%s, R:R %s)%s" % (
+                    p["target1"], p["target1_from"], "n/a" if p["rr1"] is None else "%.2f" % p["rr1"],
+                    "" if "t1_hit" not in s else ("  hit %s" % s["t1_hit"][5:] if s["t1_hit"] else
+                                                  "  not hit before the stop / yet")))
+            if p.get("stop_warning"):
+                out.append("          ! " + p["stop_warning"])
     rc = doc["record"]
     if rc["sequences"]:
         out += ["", "In this data: %d sequence(s); price came back to the FVG %d time(s): %d target, %d stopped, "
                     "%d still open. %d ran off without a tap, %d invalid before a tap. A handful of cases proves "
                     "nothing." % (rc["sequences"], rc["tapped"], rc["target"], rc["stopped"],
                                   rc["tapped"] - rc["target"] - rc["stopped"], rc["missed"], rc["invalid"])]
+    t1r = doc.get("t1_record") or {}
+    if t1r.get("with_t1"):
+        out.append("T1 (nearest untaken STH / STL) reached after a tap, before the stop: %d of %d"
+                   % (t1r["t1_hit"], t1r["with_t1"]))
     if doc.get("by_regime") and len(doc["by_regime"]) > 1:
         out.append("By regime when it became known:")
         for k in sorted(doc["by_regime"]):

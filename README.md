@@ -19,7 +19,7 @@ geliştirildi. 14 skill, `.claude/skills/` altından bu projede doğrudan `/trad
 python3 day-trader/trader-journal/journal.py snapshot   # planı ve Time Machine olasılıklarını sakla
 python3 day-trader/trader-journal/journal.py import     # dolumlar -> puanlanmış işlemler
 python3 day-trader/trader-journal/journal.py stats      # karne
-python3 -m unittest discover -s day-trader/tests        # 368 test, çevrimdışı
+python3 -m unittest discover -s day-trader/tests        # 370 test, çevrimdışı
 ```
 
 **Freqtrade'den uyarlanan fikirler** ([freqtrade/freqtrade](https://github.com/freqtrade/freqtrade), GPLv3: kod kopyalanmadı, yalnızca kavramlar sıfırdan yazıldı):
@@ -65,6 +65,11 @@ Pazartesi, CME vadelileri New York 18:00 ve Pazar akşamı, ABD hisseleri New Yo
 python3 day-trader/trader-structure/structure.py levels BTCUSDT --source binance
 python3 day-trader/trader-structure/structure.py levels NQ=F
 ```
+
+**STH/STL = yakıt (likidite):** `scan` her grafikte STH/STL/ITH/ITL'lerin yüzde kaçının 6/12/24/48 mum içinde alındığını,
+medyan alınma süresini ve fiyata en yakın alınmamış olanları gösterir. Dürüst test için **taban oranı** da verir:
+aynı uzaklıktaki herhangi bir seviye 24 mumda ne sıklıkla alınıyor? Her dizinin planına en yakın alınmamış STH/STL
+**ilk hedef (T1)** olarak eklenir; stopun hemen ötesinde alınmamış STL/STH varsa "stop likiditenin içinde" uyarısı çıkar.
 
 Henüz yok: alt zaman diliminde konfirmasyon.
 

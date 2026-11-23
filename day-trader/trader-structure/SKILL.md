@@ -18,7 +18,10 @@ description: >-
   and month high, low and equilibrium (taken or not, swept or accepted), the
   Monday range and which side of it went first, the New York midnight open
   for CME futures, and where price sits in each range (premium or discount),
-  on the right calendar for crypto, CME futures, US stocks or BIST.
+  on the right calendar for crypto, CME futures, US stocks or BIST. It treats
+  untaken STH / STL as fuel: how fast this chart takes them against a random
+  baseline, the nearest untaken ones, a first target (T1) at the nearest one,
+  and a warning when a stop sits inside that liquidity.
   Works on US index futures (NQ=F, ES=F), crypto majors (Binance BTCUSDT or
   Yahoo BTC-USD), stocks and BIST, on H1 by default, in Turkey time. Use when
   the user says "market structure", "ITH", "ITL", "LTH", "LTL", "STH", "STL",
@@ -27,7 +30,8 @@ description: >-
   "manipulation", "yatay piyasa", "range piyasası", "likidite avı", "key levels",
   "Monday range", "weekly range", "monthly range", "weekly open", "monthly
   open", "PWH", "PWL", "PDH", "midnight open", "premium discount", "açılış
-  seviyesi", "haftalık range", "aylık range", or wants the structure on NQ, ES, BTC, ETH
+  seviyesi", "haftalık range", "aylık range", "untaken highs", "STH
+  liquidity", "yakıt", "alınmamış tepe", "STL likidite", or wants the structure on NQ, ES, BTC, ETH
   or a BIST stock.
 argument-hint: "SYMBOL [--source yahoo|binance] [--interval 1h|4h|1d] [--at TIME]"
 ---
@@ -89,6 +93,27 @@ with the platform before acting on it.
 | sequence | an LTL, the first higher ITL after it, then a bullish FVG within `--window` bars of that ITL, with no close under the ITL before the gap (bearish mirror) | when all three are known |
 | plan | entry at the gap's near edge, stop at the ITL / ITH, target at the nearest ITH / LTH (ITL / LTL) that was known and not yet traded through; 2R when there is none | |
 | status | waiting, then tapped (price reached the gap), then target or stopped; invalid (closed through the ITL before a tap), missed (reached the target without a tap) | |
+
+## STH / STL are fuel
+
+Short-term highs and lows are where stops sit, and price tends to come back
+for them. `scan` treats them that way:
+
+- **Liquidity map.** For STH, STL, ITH and ITL on this chart: what share was
+  taken (a later bar traded through it) within 6, 12, 24 and 48 bars of
+  becoming known, the median bars to take, and the untaken ones nearest the
+  price (the fuel still on the chart).
+- **Baseline.** Next to each 24-bar rate: how often ANY level the same
+  distance away gets reached within 24 bars, from any bar. If STHs are taken
+  no more often than that, the chart is not showing a special pull toward
+  them; if more, it is. Say this comparison out loud: it is the honest test.
+- **T1.** Every sequence's plan gets a first target at the nearest untaken
+  STH (bullish) or STL (bearish) between the entry and the main target, with
+  its R:R, and whether it was reached after the tap before the stop.
+- **Stop warning.** When an untaken STL sits under a long's stop (or an STH
+  over a short's) within a quarter of the risk, the stop is inside that
+  liquidity: a run on it takes the stop too. The warning gives the price one
+  tick past it.
 
 ## Range and AMD (power of three)
 
@@ -159,7 +184,10 @@ became known; a bar that touches both stop and target counts as stopped.
    if an edge was raided, give the AMD read with its R:R, and say the user
    waits for their own confirmation. A `[range]` sequence is not the trade:
    the raid is. Lower-timeframe confirmation is not built yet: say so.
-6. For key levels, lead with where price sits (premium or discount of the
+6. Read the liquidity map: the nearest untaken STH above and STL below, how
+   fast this chart takes them, and how that compares with the baseline. Give
+   T1 with every live sequence and repeat any stop warning.
+7. For key levels, lead with where price sits (premium or discount of the
    previous week and the Monday range) and the nearest level above and
    below, then any level taken today and whether it was swept or accepted.
 6. To take one: the user confirms on the lower timeframe, then the stop and

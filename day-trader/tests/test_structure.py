@@ -290,3 +290,39 @@ class KeyLevels(unittest.TestCase):
             st.main(["levels", "TSLA", "--offline", TSLA, "--interval", "5m", "--resample", "1h",
                      "--at", "2026-10-16 23:30"])
         self.assertIn("below the range", o.getvalue())
+
+
+class Liquidity(unittest.TestCase):
+    def test_time_to_take_and_untaken(self):
+        # STHs at bars 1, 3, 5 (2, 4, 3); bar 4 takes the 2 three bars after it is known; the 4 is never taken
+        rows = [(1, 1, 0.5, 1), (1, 2, 0.5, 1), (1, 1, 0.5, 1), (1, 4, 0.5, 1), (1, 1, 0.5, 1), (1, 3, 0.5, 1)]
+        rows += [(1, 1, 0.5, 1)] * 60
+        bars = [{"t": T0 + 3600 * k, "o": o, "h": h, "l": l, "c": c} for k, (o, h, l, c) in enumerate(rows)]
+        liq = st.liquidity_map(bars, st.tiers(bars))["STH"]
+        self.assertEqual(liq["points"], 3)
+        self.assertEqual(liq["untaken_count"], 2)                  # the 4 and the 3
+        self.assertEqual(liq["median_bars_to_take"], 1)            # the 2, known at bar 2, taken at bar 3
+        self.assertAlmostEqual(liq["taken_within_6"], 33.33, places=2)
+        self.assertIn("baseline_within_24", liq)
+        self.assertEqual([u["level"] for u in liq["untaken"]], [3, 4])
+
+    def test_plans_carry_the_sth_stl_fuel(self):
+        out = io.StringIO()
+        with redirect_stdout(out), redirect_stderr(io.StringIO()):
+            st.main(["scan", "TSLA", "--offline", TSLA, "--interval", "5m", "--resample", "1h",
+                     "--at", "2026-10-19 17:15", "--json"])
+        d = json.loads(out.getvalue())
+        self.assertGreater(d["liquidity"]["STH"]["taken_within_48"], 90)
+        with_t1 = [s for s in d["setups"] if "target1" in s["plan"]]
+        self.assertTrue(with_t1)
+        for s in with_t1:
+            p = s["plan"]
+            if s["dir"] == "bullish":
+                self.assertTrue(p["entry"] < p["target1"] < p["target"])
+            else:
+                self.assertTrue(p["target"] < p["target1"] < p["entry"])
+        warned = [s for s in d["setups"] if "stop_warning" in s["plan"]]
+        self.assertTrue(warned)
+        for s in warned:
+            self.assertIn("sits just", s["plan"]["stop_warning"])
+        self.assertGreaterEqual(d["t1_record"]["with_t1"], d["t1_record"]["t1_hit"])
