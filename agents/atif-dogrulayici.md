@@ -68,7 +68,7 @@ Metindeki her atıfı numaralandırarak listele:
 |---|---|
 | ✓ | Resmî kaynaktan çekildi; künye, içerik ve varsa alıntı birebir doğru |
 | ⚠ | Kaynak var ama bir sorun var (alıntı farklı, fıkra yanlış, tarih farklı, ilke kararda yok, madde değişmiş) |
-| ✗ | Resmî kaynakta bulunamadı (uydurma şüphesi) veya tamamen yanlış |
+| ✗ | Resmî kaynakta bulunamadı (uydurma şüphesi), tamamen yanlış, **veya kararın sonucu/ilkesi ters aktarılmış** (ör. bozma kararı "onama" diye gösterilmiş; kararda olmayan ilke kararmış gibi sunulmuş) |
 | ? | Araç hatası nedeniyle doğrulanamadı |
 
 ## Çıktı

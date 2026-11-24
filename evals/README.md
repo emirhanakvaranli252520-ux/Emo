@@ -17,6 +17,16 @@ Veriler lisans gereği repoya konmaz; `indir.sh` ile `evals/veri/` altına indir
 4. **Süre hesabı doğruluğu:** Olaydaki tarihlerden son günün doğru hesaplanması
    (ör. HMK m.20 iki haftalık süre).
 
+## Atıf doğrulayıcı testleri (`vakalar/`)
+
+| Test | Kasıtlı hatalar | Sonuç |
+|---|---|---|
+| `atif-test-1` | Değiştirilmiş TMK m.6 alıntısı · E/K'si karıştırılmış uydurma künye · kayıt hatası taşıyan tarih | 5/5 doğru (not: cevap anahtarı test sırasında kısa süre erişilebilir durumdaydı) |
+| `atif-test-2` (temiz) | HMK m.29'da fıkra kayması · sonucu ters aktarılmış karar · iki gerçek numaradan uydurulmuş HGK künyesi · doğru Yargıtay ve BAM atıfları | 5/5 sorun doğru tespit; doğru atıflarda yanlış alarm yok. Ters aktarılan sonuç anahtarda ⚠, ajanda ✗ idi; tanım ✗ olarak netleştirildi |
+
+Her testte metin (`atif-test-N.md`), cevap anahtarı (`-beklenen.md`) ve ajanın raporu
+(`-sonuc.md`) ayrı dosyadır. **Kural:** Cevap anahtarı test bitene kadar repoya konmaz.
+
 ## Kullanılmayanlar
 
 - **CtnkyaABC korpusu (106 kanun) ve QA kümesi** bilgi kaynağı olarak kullanılmaz: PDF'ten
