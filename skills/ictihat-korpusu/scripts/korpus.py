@@ -319,6 +319,35 @@ def cmd_oku(a):
     cikti(satirlar, a)
 
 
+def cmd_denetle(a):
+    """Bütün kararlarda kayıttaki E/K/tarih kararın kendi metninde geçiyor mu? (yerel, sunucuya istek yok)"""
+    kok = korpus_dizini(a.korpus)
+    hedef = kok / "kunye_denetim.parquet"
+    con = duck().connect()
+    con.sql("SET preserve_insertion_order=false")
+    tarih = "try_cast(karar_tarihi AS DATE)"
+    t_kosul = " OR ".join(f"contains(text, {x})" for x in [
+        f"strftime({tarih}, '%d.%m.%Y')", f"strftime({tarih}, '%d/%m/%Y')", f"strftime({tarih}, '%d-%m-%Y')",
+        f"concat(day({tarih}), '.', month({tarih}), '.', year({tarih}))",
+        f"concat(day({tarih}), '/', month({tarih}), '/', year({tarih}))"])
+    print("Bütün kararlar taranıyor (birkaç dakika)…")
+    con.sql(f"""COPY (
+        SELECT id, source, court, esas_no, karar_no, karar_tarihi,
+               coalesce(contains(text, esas_no), false)  AS esas_metinde,
+               coalesce(contains(text, karar_no), false) AS karar_metinde,
+               coalesce({t_kosul}, false)                AS tarih_metinde
+        FROM {parquet(kok)}) TO '{str(hedef).replace(chr(92), '/')}' (FORMAT parquet, COMPRESSION zstd)""")
+    ozet = con.sql(f"""SELECT source, count(*) n,
+            round(100*avg(esas_metinde::int),1) e, round(100*avg(karar_metinde::int),1) k,
+            round(100*avg(tarih_metinde::int),1) t,
+            round(100*avg((esas_metinde AND karar_metinde AND tarih_metinde)::int),1) hepsi
+        FROM '{str(hedef).replace(chr(92), '/')}' GROUP BY source ORDER BY n DESC""").fetchall()
+    print(f"{'Kaynak':<10}{'Karar':>12}{'E metinde':>11}{'K metinde':>11}{'T metinde':>11}{'Üçü de':>9}")
+    for s, n, e, k, t, h in ozet:
+        print(f"{s:<10}{n:>12,}{e:>10}%{k:>10}%{t:>10}%{h:>8}%".replace(",", "."))
+    print(f"Ayrıntı: {hedef}")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--korpus")
@@ -333,6 +362,7 @@ def main():
     alt.add_parser("indir").set_defaults(f=cmd_indir)
     alt.add_parser("indeks").set_defaults(f=cmd_indeks)
     alt.add_parser("durum").set_defaults(f=cmd_durum)
+    alt.add_parser("denetle", help="tüm kararlarda künye-metin tutarlılığı").set_defaults(f=cmd_denetle)
 
     s = alt.add_parser("kunye"); s.add_argument("--esas"); s.add_argument("--karar"); ortak(s)
     s.set_defaults(f=cmd_kunye)
