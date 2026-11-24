@@ -42,6 +42,10 @@ docs/                → tasarım belgeleri
 
 ## Kurulum
 
+**Windows (tek tık):** `araclar/KUR-EMO.bat` dosyasını, Emo'nun kurulacağı klasöre (ör. `Masaüstü\Hukuk`)
+kopyalayıp çift tıklayın. Git ve Python'u kurar, depoyu indirir, Mütalaa ve arama kütüphanelerini kurar,
+isterseniz korpus ve arşivi indirir, `tezler.parquet` varsa hukuk tezlerini süzer ve eklentiyi yükler.
+
 Yerelde deneme (kurulum yapmadan):
 
 ```bash
