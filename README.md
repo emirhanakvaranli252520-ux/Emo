@@ -55,6 +55,14 @@ pip install -r skills/ictihat-arsivi/scripts/requirements.txt
 python3 skills/ictihat-arsivi/scripts/indir.py
 ```
 
+İçtihat korpusu (bir kez, ≈5,5 GB; künye ön kontrolü için):
+
+```bash
+pip install -r skills/ictihat-korpusu/scripts/requirements.txt
+python3 skills/ictihat-korpusu/scripts/korpus.py indir    # HTTPS + SHA-256 doğrulaması
+python3 skills/ictihat-korpusu/scripts/korpus.py indeks
+```
+
 Doğrulama:
 
 ```bash

@@ -173,6 +173,7 @@ hukuk dilinin gereklilikleri.
 |---|---|---|
 | Mütalaa MCP (GitHub, MIT) | ✅ Birincil doğrulama | Yalnızca resmî servislere bağlanır; kod incelendi, dışarı veri gönderen çağrı yok |
 | İçtihat arşivi — karar kümesi | ✅ Bulma aracı | 3 rastgele kararın metni resmî metinle birebir aynı; `doc_id` = Bedesten kimliği |
+| Türk İçtihat Korpusu `iaiauu/ictihatlar` (11M karar, CC0) | ✅ Künye ön kontrolü + ifade araması | SHA-256 doğrulamalı indirme; Yargıtay/Emsal kimlikleri = Bedesten; örnek metinler resmî metinle birebir. karti.av.tr aracındaki şifresiz HTTP indirme kullanılmadı |
 | İçtihat arşivi — mevzuat kümesi | ❌ Kaldırıldı | CMK m.250'de bent ve başlık eksik; madde metni atlıyor |
 | CtnkyaABC 106 kanun korpusu | ❌ Bilgi kaynağı değil | PDF kaynaklı: ≈2.600 satırda dipnot karışması, kelime bölünmesi, kesik maddeler |
 | CtnkyaABC benchmark (446 soru) | ✅ Yalnızca eval | Madde bulma isabeti ölçümü |

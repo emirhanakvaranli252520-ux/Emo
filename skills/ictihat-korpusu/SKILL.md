@@ -49,6 +49,14 @@ python3 scripts/korpus.py oku --esas 2022/2530 --karar 2022/4045 --daire "9. Huk
 - `--daire "1. Hukuk"` 11. veya 21. Hukuk Dairesi'ni getirmez.
 - Bütün korpusta ifade araması dakikalar sürebilir; `--kaynak`, `--daire`, `--yil` hızlandırır.
 
+## Test sonuçları (24.11.2026)
+
+- 30 dosyanın tamamı SHA-256 ile doğrulandı; künye indeksi 11.045.085 karar.
+- Gerçek künye bulundu; uydurma künye "KAYIT BULUNAMADI" döndü; `1. Hukuk` süzgeci 11./21. daireyi getirmedi.
+- **Yargıtay ve UYAP Emsal kararlarında `document_id`, resmî Bedesten kimliğinin aynısıdır:**
+  `belge_getir {"id": "bedesten:<document_id>"}`. Örneklerde metin resmî metinle birebir aynı çıktı.
+- AYM kararlarının kimliği farklıdır (UUID); AYM için Mütalaa `anayasa_karari_ara` kullanılır.
+
 ## Doğrulamadaki yeri (temel-ilkeler §4 ve `kaynak-dogrulama` ile)
 
 Bu korpus **resmî kaynak değildir**; bulma ve ön kontrol aracıdır.
