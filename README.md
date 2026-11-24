@@ -10,6 +10,21 @@ Tasarım kararları için: [`docs/tasarim.md`](docs/tasarim.md)
 
 > Bu araç bir ilk taslak ve analiz yardımcısıdır. Her çıktı avukat kontrolünden geçer.
 
+## Komutlar
+
+| Komut | Ne yapar |
+|---|---|
+| `/emo:dava-ac <kısa-ad>` | Şablondan dava klasörü açar; belgelerin metnini çıkarır, künye, olay ve kronolojiyi doldurur |
+| `/emo:analiz <dava kodu veya olay>` | Dört bakış açılı tam analiz: analist → karşı taraf → hâkim → stratejist → atıf denetimi |
+| `/emo:karsi-taraf <dava>` | Hızlı kırmızı takım: karşı tarafın en tehlikeli hamleleri ve hukuka uygun tedbirler |
+| `/emo:ictihat <soru>` | Lehe/aleyhe içtihat taraması (arşiv + 11M korpus + güncel resmî kaynak) |
+| `/emo:sure <işlem> <tarih>` | Usul süresi hesabı (adli tatil ve resmî tatil kontrolüyle) |
+| `/emo:dilekce <tür> [dava]` | Dilekçe taslağı → zorunlu atıf denetimi → antetli UDF |
+| `/emo:atif-denetle <dosya>` | Herhangi bir metindeki atıfları resmî kaynaktan denetler (karşı tarafın dilekçesi dahil) |
+
+**Ajanlar:** `analist` (Opus) · `karsi-taraf` (Fable) · `hakim` (Opus) · `stratejist` (Fable) ·
+`atif-dogrulayici` (Sonnet; iki temiz testte 10/10)
+
 ## Yapı
 
 ```
@@ -77,6 +92,8 @@ claude plugin validate .
 - [x] Ek — İçtihat arşivi, Mütalaa (resmî kaynak) bağlantısı, kaynak doğrulama skill'i, eval veri setleri
 - [ ] Aşama 4 — MCP bağlantıları (Soorgla araç haritası kaldı)
 - [ ] Aşama 5 — Skill'ler
-- [ ] Aşama 6 — Ajanlar
-- [ ] Aşama 7 — Komutlar
+- [x] Aşama 6 — Ajanlar (5)
+- [x] Aşama 7 — Komutlar (7)
+- [ ] Uçtan uca deneme (`/emo:analiz` örnek vaka)
+- [ ] Alan skill'leri (iş, ceza, aile, tapu, miras — hile katalogları)
 - [ ] Aşama 8 — Eval ve testler
