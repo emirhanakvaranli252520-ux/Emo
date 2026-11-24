@@ -42,6 +42,10 @@ Araç adları `mcp__plugin_emo_mutalaa__<araç>` biçimindedir. Önce araç aç�
   `karar_sequence`) + `chamber` + `courts`.
 - **Arşivden gelen bir kararın `doc_id`'si resmî kimliğin aynısıdır:** doğrudan
   `belge_getir {"id": "bedesten:<doc_id>"}` ile resmî metni al.
+- **`karar_ara` sonucundaki `date` alanı 1 gün erken olabilir** (test: metinde 28.03.2022,
+  aramada 2022-03-27). Tarih yalnızca `belge_getir` ile açılan kararın metninden alınır.
+- Uzun kararlar sayfalara bölünür: `page.has_more` true ise sonraki sayfaları da çek; tam
+  metni okumadan kararın sonucu veya alıntı hakkında hüküm verme.
 - Daire filtresi her zaman beklendiği gibi eşleşmeyebilir (ör. `HGK` aramasında HBK kararları
   geldiği görüldü). **Daireyi karar metninin ilk satırından teyit et.**
 - Kişi adı, dosya numarası veya müvekkil bilgisi sorguya yazılmaz; sorgu soyut hukuki

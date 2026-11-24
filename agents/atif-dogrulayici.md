@@ -49,7 +49,10 @@ Metindeki her atıfı numaralandırarak listele:
 2. **Resmî kaynak:** `karar_ara` ile `courts`, `chamber`, `esas_year`, `esas_sequence`
    (veya `karar_year`, `karar_sequence`) kullanarak ara. Korpusta bulunduysa ve kaynak Yargıtay
    veya UYAP Emsal ise doğrudan `belge_getir {"id": "bedesten:<document_id>"}`.
-3. Kararın **tam metnini** oku ve kontrol et:
+3. Kararın **tam metnini** oku (`page.has_more` true ise bütün sayfaları çek) ve kontrol et.
+   `karar_ara` sonucundaki `date` alanını tarih kaynağı olarak KULLANMA; 1 gün erken olabilir.
+   Tarih, kararın metnindeki "KARAR TARİHİ" satırından veya "… tarihinde oybirliğiyle/oyçokluğuyla"
+   cümlesinden alınır:
    - Daire, E., K. ve tarih **kararın kendi metninde** metindeki atıfla aynı mı?
      (Arama sonucundaki kayıt bilgisi tek başına yeterli değildir; kayıt hataları bilinmektedir.)
    - Kararın **sonucu**: onama / bozma / kaldırma / ret; kimin lehine.

@@ -51,6 +51,43 @@ Kayıttaki tarih ve E/K numarası, kararın **kendi metnindeki** tarih ve numara
 Hatanın bir kısmı korpusa değil, **kaynak sistemin kendi kaydına** aittir (1. HD örneğinde
 resmî kayıt da yanlış yılı gösteriyor). Bu, yalnızca resmî kayda bakmanın da yetmediğini gösterir.
 
+## 3a. Bütün korpusta denetim (11.045.085 karar, yerel)
+
+`korpus.py denetle` her kararın kayıttaki E/K/tarihinin kendi metninde geçip geçmediğini
+işaretler (`kunye_denetim.parquet`). Metinde **başka** bir künye/tarih yazan kararlar
+(üst sınır; metinde alıntılanan başka kararlar da sayılabilir):
+
+| Kaynak | Karar | Metinde başka künye | Metinde başka tarih |
+|---|---:|---:|---:|
+| Yargıtay | 9.820.145 | 606 (%0,006) | ≈114 bin (≈%1,2) |
+| UYAP Emsal | 815.702 | ≈61 bin (≈%7,5) | ≈47 bin (≈%5,8) |
+| Danıştay | 386.608 | — | ≈950 (%0,25) |
+
+## 3b. İki bağımsız veri setinin çapraz kontrolü (671.047 karar)
+
+İçtihat arşivi (`muhamparlak/...`) ile korpus aynı kimlikli kararlarda karşılaştırıldı:
+- Metin parçalarının **%98,7'si** korpus metninde birebir geçiyor; kalan %1,3'te arşiv
+  ilk derece "NUMARASI" satırını atlamış veya başlığı tekrarlamış (içerik farkı yok).
+- Künye 664.550 kararın tamamında aynı (iki set de aynı kaynak kaydından geliyor; bu,
+  künyenin doğruluğunu değil tutarlılığını gösterir).
+- Arşivdeki 6.497 karar (2012 öncesi) korpusta yok.
+
+## 3c. İşaretli kararların resmî kaynakla kontrolü (60 karar)
+
+Künye/tarih çelişkisi işaretlenen 30 UYAP Emsal, 20 Yargıtay ve 10 Danıştay kararı:
+- **Metin: 60/60 resmî metinle aynı** (ilk ölçümde 6 karar farklı göründü; neden, resmî
+  sistemin uzun kararları sayfalara bölmesi ve betiğin yalnızca ilk sayfayı almasıydı —
+  tüm sayfalarla 6/6 aynı). Bugünkü toplam: **107/107 karar metni aynı.**
+- Kayıttaki E/K'nin metinde geçmediği UYAP Emsal kararlarında aynı E/K **resmî metinde de
+  geçmiyor**: hata korpusta değil, kaynak sistemin kayıt bilgisinde.
+- **Resmî arama sonucundaki tarih alanı 1 gün erken olabilir:** Yargıtay 9. HD 2022/2530 E.
+  kararının metni "28.03.2022", korpus 28.03.2022, resmî arama (Mütalaa `karar_ara`) ise
+  **27.03.2022** döndürdü (muhtemelen UTC saat dilimi dönüşümü). İşaretli 27 kararın 27'sinde
+  resmî arama tarihi korpustan tam 1 gün önceydi.
+
+**Kesin kural:** Karar tarihi ne korpus kaydından ne de resmî arama sonucundan alınır;
+yalnızca kararın metninden ("KARAR TARİHİ" satırı veya "… tarihinde oybirliğiyle" cümlesi).
+
 ## 4. Sisteme yansıyan önlemler
 
 1. `kaynak-dogrulama`: Künye ve tarih yalnızca kararın metninden alınır; kayıt ile metin
