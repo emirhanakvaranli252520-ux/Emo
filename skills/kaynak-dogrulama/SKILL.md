@@ -61,6 +61,12 @@ Araç adları `mcp__plugin_emo_mutalaa__<araç>` biçimindedir. Önce araç aç�
 **İçtihat (✓ için hepsi gerekli):**
 1. Karar `belge_getir` ile resmî kaynaktan çekildi.
 2. Künye **metnin kendisinden** alındı: mahkeme, daire, E., K., karar tarihi.
+   Arama sonuçlarındaki ve veritabanlarındaki kayıt bilgisi (metadata) künye kaynağı
+   **değildir**: testte UYAP Emsal kayıtlarının ≈%10'unda E/K, ≈%9'unda tarih kararın kendi
+   metniyle uyuşmadı; Yargıtay'da tarih uyuşmazlığı ≈%1,3; resmî sistemin kendi kaydında da
+   yıl hatası görüldü. Tarih; başlıktaki "KARAR TARİHİ" satırından veya sondaki
+   "… tarihinde oybirliğiyle/oyçokluğuyla karar verildi" cümlesinden alınır. Kayıt ile metin
+   çelişirse **metin esas alınır** ve çelişki denetim tablosuna not edilir.
 3. Kararın **sonucu** (onama / bozma / kaldırma; kimin lehine) metinden okundu.
 4. Kullanılan ilke veya alıntı metinde birebir var; alıntı tırnak içinde ve kelimesi kelimesine.
 5. Kararın konusu ve olgu yapısı bizim olayla karşılaştırıldı (benzerlik/farklılık yazıldı).
@@ -98,6 +104,8 @@ Dilekçe, cevap, istinaf/temyiz dilekçesi veya mütalaa **kesinleşmeden önce*
   Kanunları; 818 / 6098 sayılı Borçlar Kanunları; 765 / 5237 sayılı TCK) birbirine karışır.
 - **Uydurma künye:** Gerçekçi görünen ama var olmayan E./K. numarası. Künye ancak
   `belge_getir` ile açılan metinden yazılır.
+- **Hatalı kayıt bilgisi:** Gerçek bir kararın veritabanı kaydı başka bir dosyanın
+  numarasını veya bir gün kaymış tarihi taşıyabilir. Künye ve tarih yalnızca metinden alınır.
 - **Daire görev değişikliği:** Bir konuya bakan daire yıllar içinde değişti; eski bir daire
   kararı güncel çizgiyi yansıtmayabilir. Karar tarihini ve güncel kararları kontrol et.
 - **İBK künyeleri ve tarihleri:** Özellikle sık atıf yapılan İBK'larda tarih ve numara

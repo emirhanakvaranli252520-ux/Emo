@@ -194,7 +194,30 @@ def kunye_satiri(r):
             f"E. {r['esas_no'] or '-'} · K. {r['karar_no'] or '-'} · T. {r['karar_tarihi'] or '-'}")
 
 
+def tarih_bicimleri(iso):
+    y, m, d = iso.split("-")
+    return {f"{d}.{m}.{y}", f"{d}/{m}/{y}", f"{int(d)}.{int(m)}.{y}", f"{int(d)}/{int(m)}/{y}", f"{d}-{m}-{y}"}
+
+
+def kunye_metin_kontrolu(r):
+    """Kayıttaki künye (esas/karar/tarih) kararın kendi metninde geçiyor mu?
+    Testte UYAP Emsal kayıtlarının ≈%10'unda künye, ≈%9'unda tarih metinle uyuşmadı."""
+    metin = r.get("text") or ""
+    k = {
+        "esas_metinde": bool(r.get("esas_no")) and r["esas_no"] in metin,
+        "karar_metinde": bool(r.get("karar_no")) and r["karar_no"] in metin,
+        "tarih_metinde": bool(r.get("karar_tarihi")) and any(t in metin for t in tarih_bicimleri(str(r["karar_tarihi"]))),
+    }
+    k["uyari"] = None if all(k.values()) else (
+        "Kayıttaki künye/tarih kararın metninde bulunamadı. Künyeyi ve tarihi METİNDEN al "
+        "(başlıktaki ESAS/KARAR NO, 'KARAR TARİHİ' satırı veya '… tarihinde oybirliğiyle' cümlesi).")
+    return k
+
+
 def cikti(satirlar, a, baslik=None):
+    for r in satirlar:
+        if r.get("text"):
+            r["kunye_kontrolu"] = kunye_metin_kontrolu(r)
     if a.json:
         print(json.dumps(satirlar, ensure_ascii=False, indent=1, default=str))
         return
@@ -206,6 +229,14 @@ def cikti(satirlar, a, baslik=None):
         if r.get("baglam"):
             print("    > " + re.sub(r"\s+", " ", r["baglam"]).strip())
         if r.get("text"):
+            kk = r["kunye_kontrolu"]
+            isaret = lambda b: "✓" if b else "✗"
+            print(f"    künye-metin kontrolü: E {isaret(kk['esas_metinde'])} · K {isaret(kk['karar_metinde'])} · "
+                  f"T {isaret(kk['tarih_metinde'])}")
+            if kk["uyari"]:
+                print("    ⚠ " + kk["uyari"])
+            if r["source"] in ("yargitay", "emsal", "danistay"):
+                print(f"    resmî teyit: belge_getir bedesten:{r['document_id']}")
             print("\n" + r["text"])
 
 

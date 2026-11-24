@@ -56,6 +56,19 @@ python3 scripts/korpus.py oku --esas 2022/2530 --karar 2022/4045 --daire "9. Huk
 - **Yargıtay ve UYAP Emsal kararlarında `document_id`, resmî Bedesten kimliğinin aynısıdır:**
   `belge_getir {"id": "bedesten:<document_id>"}`. Örneklerde metin resmî metinle birebir aynı çıktı.
 - AYM kararlarının kimliği farklıdır (UUID); AYM için Mütalaa `anayasa_karari_ara` kullanılır.
+- **Resmî kaynakla örneklem karşılaştırması (47 karar):** 47/47 karar metni resmî Bedesten
+  metniyle aynı (1997–2005 Yargıtay kararlarında yalnızca resmî metnin başlık satırı eksik).
+- **Kayıt bilgisi (metadata) hataları — 4.000'er kararlık örneklemde:**
+
+  | Kaynak | Tarih metinle uyuşmuyor | E/K metinde yok |
+  |---|---|---|
+  | UYAP Emsal | ≈%9 | ≈%10 |
+  | Yargıtay | ≈%1,3 | — |
+  | Danıştay | ≈%0,2 | — |
+
+  Bu yüzden `oku` çıktısı her kararda **künye-metin kontrolü** (E/K/T ✓/✗) gösterir.
+  ✗ varsa künye ve tarih kararın metninden alınır; kayıt bilgisi kullanılmaz.
+  Ayrıntı: `docs/korpus-dogrulama-raporu.md`.
 
 ## Doğrulamadaki yeri (temel-ilkeler §4 ve `kaynak-dogrulama` ile)
 
