@@ -88,7 +88,10 @@ Ayrıntılı protokol: `kaynak-dogrulama` skill'i. Özet:
    AYM kararları. **Birincil doğrulama kaynağıdır.**
 2. **İçtihat arşivi** (`ictihat-arsivi`, sınırsız, yerel): emsal **bulmak** için ilk adım.
    Bulunan kararın `doc_id`'si resmî kimliğin aynısıdır; Mütalaa `belge_getir` ile teyit edilir.
-3. **Soorgla MCP** (günlük sınırlı): madde sürüm geçmişi ve olay tarihindeki metin,
+3. **İçtihat korpusu** (`ictihat-korpusu`, 11 milyon karar, yerel): her karar künyesinin
+   **ön kontrolü** (var mı?), ifade araması, AYM ve BAM kararları. Resmî değildir;
+   bulunan karar Mütalaa ile teyit edilir.
+4. **Soorgla MCP** (günlük sınırlı): madde sürüm geçmişi ve olay tarihindeki metin,
    Resmî Gazete, **hesaplamalar** (süre, harç, faiz, vekâlet ücreti, işçilik alacağı) ve
    resmî formlar için harcanır. Mütalaa'nın yaptığı işe Soorgla hakkı harcanmaz.
 

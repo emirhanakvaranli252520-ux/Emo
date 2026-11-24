@@ -15,7 +15,8 @@ dayanır.
 |---|---|---|---|
 | 1 | **Mütalaa MCP** (`mutalaa`) → Bedesten, mevzuat.gov.tr, AYM bilgi bankaları | Mevzuat metni, karar arama ve tam metin, AYM kararları | Yok (resmî servisler, yerel) |
 | 2 | **Soorgla MCP** | Madde geçmişi ve sürüm karşılaştırma, Resmî Gazete, **hesaplamalar** (süre, harç, faiz, vekâlet ücreti, işçilik alacağı) | Ücretsiz planda günlük sorgu sınırı |
-| 3 | **İçtihat arşivi** (`ictihat-arsivi`) | Sınırsız anlamsal emsal **bulma** | 2025 ortasına kadar; yalnızca bulma aracı |
+| 3 | **İçtihat korpusu** (`ictihat-korpusu`, 11 milyon karar) | **Künye ön kontrolü**, ifade araması, AYM ve BAM kararları | Yerel, resmî değil; 2026'ya kadar |
+| 4 | **İçtihat arşivi** (`ictihat-arsivi`) | Sınırsız anlamsal emsal **bulma** | 2025 ortasına kadar; yalnızca bulma aracı |
 | — | Model bilgisi | Yalnızca nereye bakılacağını tahmin etmek | **Atıf kaynağı değildir** |
 
 ## 2. Mütalaa araçları
@@ -71,13 +72,18 @@ Araç adları `mcp__plugin_emo_mutalaa__<araç>` biçimindedir. Önce araç aç�
 Dilekçe, cevap, istinaf/temyiz dilekçesi veya mütalaa **kesinleşmeden önce** şu denetim yapılır:
 
 1. Metindeki **bütün** kanun ve karar atıflarını listele.
-2. Her biri için §3'teki kontrolleri yap. "✓ arşiv" veya "⚠" durumundaki her atıf **resmî
+2. **Künye ön kontrolü:** Her karar künyesini önce `ictihat-korpusu` ile ara
+   (`korpus.py --json kunye --esas … --karar … --daire …`). Korpusta bulunamayan künye
+   uydurma şüphelisidir; resmî kaynakta da bulunamazsa metinden çıkarılır.
+   Yargıtay kararlarında korpus `document_id`'si resmî Bedesten kimliğinin aynısıdır:
+   `belge_getir {"id": "bedesten:<document_id>"}`.
+3. Her biri için §3'teki kontrolleri yap. "✓ arşiv" veya "⚠" durumundaki her atıf **resmî
    kaynaktan yeniden teyit edilir**; mahkeme metninde yalnızca resmî kaynaktan doğrulanmış
    (✓) atıf kalabilir.
-3. Teyit edilemeyen atıf **metinden çıkarılır** veya avukata açıkça sorulur. Mahkeme
+4. Teyit edilemeyen atıf **metinden çıkarılır** veya avukata açıkça sorulur. Mahkeme
    metnine ⚠ işareti konmaz; ⚠'li atıf, metne hiç girmez.
-4. Her alıntıyı kaynak metinle karakter karakter karşılaştır.
-5. Denetim sonucunu dilekçenin yanında ayrı bir **atıf denetim tablosu** olarak ver:
+5. Her alıntıyı kaynak metinle karakter karakter karşılaştır.
+6. Denetim sonucunu dilekçenin yanında ayrı bir **atıf denetim tablosu** olarak ver:
 
 | # | Atıf (metindeki hali) | Kaynak | Durum | Not |
 |---|---|---|---|---|
