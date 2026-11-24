@@ -40,6 +40,14 @@ claude plugin marketplace add emirhanakvaranli252520-ux/Emo
 claude plugin install emo@emo-hukuk
 ```
 
+Resmî kaynak bağlantısı — Mütalaa MCP (zorunlu; mevzuat ve kararları resmî kaynaktan doğrular):
+
+```bash
+uv tool install --python 3.12 "https://github.com/hburaktasyurek/MutalaaMCP/releases/download/v0.2.0/mutalaamcp-0.2.0-py3-none-any.whl"
+# veya: pip install "mutalaamcp @ git+https://github.com/hburaktasyurek/MutalaaMCP@v0.2.0"
+mutalaamcp --help   # kurulum kontrolü; plugin .mcp.json ile otomatik bağlanır
+```
+
 Yerel içtihat arşivi (bir kez, ≈5 GB indirme):
 
 ```bash
@@ -58,7 +66,8 @@ claude plugin validate .
 - [x] Aşama 1 — Tasarım belgesi
 - [x] Aşama 2 — Repo iskeleti ve plugin manifest'i
 - [x] Aşama 3 — Temel ilkeler (anayasa) skill'i
-- [ ] Aşama 4 — MCP bağlantıları
+- [x] Ek — İçtihat arşivi, Mütalaa (resmî kaynak) bağlantısı, kaynak doğrulama skill'i, eval veri setleri
+- [ ] Aşama 4 — MCP bağlantıları (Soorgla araç haritası kaldı)
 - [ ] Aşama 5 — Skill'ler
 - [ ] Aşama 6 — Ajanlar
 - [ ] Aşama 7 — Komutlar

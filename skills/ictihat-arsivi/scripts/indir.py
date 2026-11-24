@@ -30,7 +30,9 @@ import pyarrow.parquet as pq
 REPO = "muhamparlak/turkish-law-bge-m3-embeddings"
 API = f"https://huggingface.co/api/datasets/{REPO}"
 RAW = f"https://huggingface.co/datasets/{REPO}/resolve/main/"
-KLASOR = {"emsal": "emsal_kararlar/", "mevzuat": "mevzuat/"}
+# Mevzuat kümesi bilerek indirilmez: resmî metinle karşılaştırmada madde metni atladığı
+# tespit edildi (ör. CMK m.250'de bent eksik). Mevzuat yalnızca resmî kaynaktan alınır.
+KLASOR = {"emsal": "emsal_kararlar/"}
 
 
 def arsiv_dizini(arg):
@@ -102,7 +104,7 @@ def isle(kume, ham_dosyalar, arsiv):
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--arsiv")
-    ap.add_argument("--kume", choices=["emsal", "mevzuat", "hepsi"], default="hepsi")
+    ap.add_argument("--kume", choices=["emsal", "hepsi"], default="hepsi")
     ap.add_argument("--ham-sakla", action="store_true", help="Ham parquet dosyalarını silme")
     a = ap.parse_args()
 
@@ -114,7 +116,7 @@ def main():
         bilgi = json.load(r)
     dosyalar = [s["rfilename"] for s in bilgi["siblings"] if s["rfilename"].endswith(".parquet")]
 
-    kumeler = ["emsal", "mevzuat"] if a.kume == "hepsi" else [a.kume]
+    kumeler = ["emsal"]
     ozet = {"kaynak": REPO, "surum": bilgi.get("sha"), "lisans": "CC-BY-4.0", "kurulum": date.today().isoformat(), "kumeler": {}}
     bilgi_yol = arsiv / "bilgi.json"
     if bilgi_yol.exists():

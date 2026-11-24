@@ -6,8 +6,10 @@ Modlar:
   Esas no ile:      ara.py --esas 2015/1234 [--daire "9. Hukuk"]
   Metin içinde:     ara.py --metin "muris muvazaası" --daire "1. Hukuk" --yil-min 2018
   Tam karar metni:  ara.py --tam <doc_id>
-  Kanun maddesi:    ara.py --kume mevzuat --madde "TMK 6"
-  Mevzuatta anlam:  ara.py --kume mevzuat "boşanmada mal rejiminin tasfiyesi katılma alacağı"
+
+Not: Arşivin mevzuat kümesi, resmî metinle karşılaştırmada madde metni atladığı tespit
+edildiği için kullanılmaz. Mevzuat metni yalnızca resmî kaynaktan (Mütalaa / Soorgla) alınır.
+doc_id resmî Bedesten kimliğinin aynısıdır: Mütalaa belge_getir {"id": "bedesten:<doc_id>"}.
 
 Süzgeçler: --kaynak Yargıtay|Danıştay  --daire "<metin parçası>"  --yil-min  --yil-max  -k
 Çıktı: Markdown (varsayılan) veya --json.
@@ -200,19 +202,7 @@ def pencere(metin, ifade, n):
     return ("… " if bas else "") + parca + (" …" if bas + n < len(sade_metin) else "")
 
 
-def madde_bul(arsiv, ifade):
-    m = re.match(r"\s*(\S+)\s+(?:m\.?\s*|madde\s*)?(.+?)\s*$", ifade, re.I)
-    if not m:
-        raise SystemExit('Biçim: --madde "TMK 6"  veya  "İşK Geçici Madde 1"')
-    kisa, no = m.group(1), m.group(2)
-    meta = kume_yukle(arsiv, "mevzuat")
-    hedef = no if re.match(r"(geçici|ek)\s", no, re.I) else f"Madde {no}"
-    sonuc = meta.filter(pc.and_(pc.equal(pc.utf8_lower(meta["kanun_kisa_ad"]), kisa.lower()),
-                                pc.equal(pc.utf8_lower(meta["madde_no"]), hedef.lower())))
-    return sonuc.to_pylist()
-
-
-def yazdir(sonuclar, kume, a, tam=False):
+def yazdir(sonuclar, a, tam=False):
     for r in sonuclar:
         r.pop("vector", None)
         if a.json and r.get("_vurgu") and not tam:
@@ -225,26 +215,21 @@ def yazdir(sonuclar, kume, a, tam=False):
         return
     for j, r in enumerate(sonuclar, 1):
         skor = f" · benzerlik {r['skor']}" if "skor" in r else ""
-        if kume == "mevzuat":
-            print(f"### {j}. {r['kanun_adi']} ({r['kanun_kisa_ad']}) {r['madde_no']}{skor}")
-            print(f"`{r['id']}` · arşiv metni — yürürlük güncelliği Soorgla ile teyit edilmeli\n")
-            print(r["orijinal_metin"].strip() + "\n")
+        print(f"### {j}. {kunye(r)}{skor}")
+        print(f"`doc_id: {r['doc_id']}` · kaynak: içtihat arşivi · resmî teyit: "
+              f"belge_getir bedesten:{r['doc_id']}\n")
+        if tam:
+            print(r["text"].strip() + "\n")
+        elif r.get("_vurgu"):
+            print("> " + pencere(r["text"], r["_vurgu"], a.uzunluk) + "\n")
         else:
-            print(f"### {j}. {kunye(r)}{skor}")
-            print(f"`doc_id: {r['doc_id']}` · kaynak: içtihat arşivi\n")
-            if tam:
-                print(r["text"].strip() + "\n")
-            elif r.get("_vurgu"):
-                print("> " + pencere(r["text"], r["_vurgu"], a.uzunluk) + "\n")
-            else:
-                print("> " + sade(r["text"], a.uzunluk) + "\n")
+            print("> " + sade(r["text"], a.uzunluk) + "\n")
 
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("sorgu", nargs="?")
     ap.add_argument("--arsiv")
-    ap.add_argument("--kume", choices=["emsal", "mevzuat"], default="emsal")
     ap.add_argument("-k", type=int, default=8)
     ap.add_argument("--kaynak", choices=["Yargıtay", "Danıştay"])
     ap.add_argument("--daire")
@@ -253,22 +238,19 @@ def main():
     ap.add_argument("--esas", help="Esas veya karar no (ör. 2015/1234)")
     ap.add_argument("--metin", help="Karar metninde geçen ifade")
     ap.add_argument("--tam", metavar="DOC_ID", help="Kararın tam metni")
-    ap.add_argument("--madde", help='Kanun maddesi (ör. "TMK 6")')
     ap.add_argument("--uzunluk", type=int, default=700, help="Özet uzunluğu (karakter)")
     ap.add_argument("--json", action="store_true")
     a = ap.parse_args()
     arsiv = arsiv_dizini(a.arsiv)
 
     if a.tam:
-        yazdir([tam_metin(arsiv, a.tam)], "emsal", a, tam=True)
-    elif a.madde:
-        yazdir(madde_bul(arsiv, a.madde), "mevzuat", a)
+        yazdir([tam_metin(arsiv, a.tam)], a, tam=True)
     elif a.esas:
-        yazdir(esas_ara(arsiv, a), "emsal", a)
+        yazdir(esas_ara(arsiv, a), a)
     elif a.metin:
-        yazdir(metin_ara(arsiv, a), "emsal", a)
+        yazdir(metin_ara(arsiv, a), a)
     elif a.sorgu:
-        yazdir(anlamsal(arsiv, a.kume, a.sorgu, a), a.kume, a)
+        yazdir(anlamsal(arsiv, "emsal", a.sorgu, a), a)
     else:
         ap.print_help()
         sys.exit(1)

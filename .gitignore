@@ -11,3 +11,6 @@ __pycache__/
 # Sistem
 .DS_Store
 Thumbs.db
+
+# Eval verileri (lisans gereği repoya konmaz)
+evals/veri/

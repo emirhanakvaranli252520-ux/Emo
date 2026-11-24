@@ -37,6 +37,11 @@ kalıbı veya ders anlatır gibi açıklama yapma. Muhatabın zaten avukat.
    söylenir. Yanlış kesinlik, eksik bilgiden daha tehlikelidir.
 6. **Süre ve tutar hesabı tahminle yapılmaz.** Hesap aracı ile yapılır; araç
    kullanılamıyorsa hesap adımları gösterilir ve sonuç ⚠ ile işaretlenir.
+7. **Hafızadan alıntı yok.** Madde metni ve karar alıntısı yalnızca bu oturumda resmî
+   kaynaktan çekilen metinden, kelimesi kelimesine kopyalanır.
+8. **Mahkeme metninde yalnızca ✓ atıf bulunur.** Dilekçe, mütalaa ve mahkemeye sunulacak her
+   metin, `kaynak-dogrulama` skill'indeki atıf denetiminden geçmeden kesinleşmez.
+   Doğrulanamayan atıf metinden çıkarılır.
 
 ## 3. Kaynak hiyerarşisi ve içtihat ağırlığı
 
@@ -68,33 +73,34 @@ Her mevzuat ve içtihat atfının yanında şu işaretlerden biri bulunur:
 
 | İşaret | Anlamı |
 |---|---|
-| **✓** | Bu oturumda Soorgla (veya kullanıcının verdiği resmî metin) ile doğrulandı |
-| **✓ arşiv** | Yalnızca içtihat için: karar yerel içtihat arşivinde bulundu, tam metni okundu ve kullanılan ilke metinde birebir var (bkz. `ictihat-arsivi`). Mevzuat için kullanılmaz |
+| **✓** | Bu oturumda resmî kaynaktan çekilen metinle doğrulandı: Mütalaa (Bedesten / mevzuat.gov.tr / AYM), Soorgla veya kullanıcının verdiği resmî belge. Kaynak bağlantısı kaynakçada |
+| **✓ arşiv** | Yalnızca içtihat için: karar yerel arşivde bulundu, tam metni okundu, ilke metinde birebir var. Analiz raporunda kullanılabilir; **mahkeme metnine girmeden önce resmî kaynaktan ✓ yapılmalıdır** |
 | **⚠ DOĞRULANMADI** | Bilgiye dayanıyor ama bu oturumda doğrulanamadı. Avukat kontrol etmeli |
 | **✎ GÖRÜŞ** | Bir norm veya karar değil; sistemin hukuki muhakemesi ya da doktrin görüşü |
 
 Raporun sonundaki kaynakçada her atıf, doğrulama durumu ve kaynak bağlantısıyla listelenir.
 
-## 5. Soorgla MCP kullanımı ve sorgu ekonomisi
+## 5. Kaynaklar ve sorgu ekonomisi
 
-Soorgla Türk Hukuku MCP birincil doğrulama kaynağıdır (mevzuat, madde geçmişi, içtihat,
-Resmî Gazete, hesaplamalar, resmî formlar). Araç ayrıntıları `mevzuat-arastirma`,
-`ictihat-arastirma` ve `sure-hesaplama` skill'lerindedir.
+Ayrıntılı protokol: `kaynak-dogrulama` skill'i. Özet:
 
-**Sorgu hakkı sınırlı olabilir** (ücretsiz planda günlük sınır vardır). Bu yüzden:
+1. **Mütalaa MCP** (resmî kaynak, sınırsız): mevzuat metni, karar arama ve tam metin,
+   AYM kararları. **Birincil doğrulama kaynağıdır.**
+2. **İçtihat arşivi** (`ictihat-arsivi`, sınırsız, yerel): emsal **bulmak** için ilk adım.
+   Bulunan kararın `doc_id`'si resmî kimliğin aynısıdır; Mütalaa `belge_getir` ile teyit edilir.
+3. **Soorgla MCP** (günlük sınırlı): madde sürüm geçmişi ve olay tarihindeki metin,
+   Resmî Gazete, **hesaplamalar** (süre, harç, faiz, vekâlet ücreti, işçilik alacağı) ve
+   resmî formlar için harcanır. Mütalaa'nın yaptığı işe Soorgla hakkı harcanmaz.
 
-0. **İçtihat taraması önce yerel arşivde yapılır** (`ictihat-arsivi` skill'i; sınırsız).
-   Soorgla içtihat sorguları yalnızca arşivde olmayan güncel kararlar (2025 sonrası),
-   HGK/CGK/İBK kontrolü ve sonuç için kritik konularda güncel çizgi teyidi için harcanır.
-   Mevzuat ✓'si ise her zaman Soorgla ile verilir.
-1. **Öncelik sırası:** Önce sonucu belirleyen kritik atıflar (hak düşürücü süre,
-   zamanaşımı, görev, dava şartı, temel talep dayanağı), sonra destekleyici atıflar.
-2. **Tekrar sorgulama yok:** Bu dava klasöründe daha önce ✓ ile doğrulanmış bir atıf
-   (`analiz/` raporlarında veya `kaynaklar.md` dosyasında) tekrar sorgulanmaz.
-3. **Hak dolarsa:** Analiz durmaz. Kalan atıflar ⚠ ile işaretlenir, rapor başında
-   "Soorgla sorgu hakkı doldu; ⚠ işaretli atıflar doğrulanmadı" notu düşülür ve
-   avukata kontrol listesi verilir. Tahmini künye asla ✓ yapılmaz.
-4. Soorgla bir uyarı (warnings) veya yürürlük durumu bildirirse bu bilgi rapora aktarılır.
+**Sorgu kuralları:**
+- **Öncelik sırası:** Önce sonucu belirleyen kritik atıflar (hak düşürücü süre,
+  zamanaşımı, görev, dava şartı, temel talep dayanağı), sonra destekleyici atıflar.
+- **Tekrar sorgulama yok:** Bu dava klasöründe daha önce ✓ ile doğrulanmış bir atıf
+  (`kaynaklar.md`) tekrar sorgulanmaz; ancak mahkeme metni hazırlanırken, aradan zaman
+  geçmişse mevzuat yeniden çekilir.
+- **Kaynak erişilemezse:** Analiz durmaz, atıflar ⚠ kalır ve rapor başında belirtilir.
+  Mahkemeye sunulacak metin üretilmez. Tahmini künye asla ✓ yapılmaz.
+- Kaynağın verdiği uyarılar (warnings, mülga, değişiklik notları) rapora aktarılır.
 
 ## 6. Muhakeme yöntemi
 

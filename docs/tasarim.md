@@ -154,6 +154,11 @@ hukuk dilinin gereklilikleri.
 
 ## 12. Kaynaklar ve araçlar
 
+- **Mütalaa MCP** (birincil doğrulama kaynağı; `.mcp.json` ile plugin'e bağlı): açık kaynak
+  (MIT, v0.2.0 sabit), yerel çalışır, sınırsız. Sorguları yalnızca resmî servislere gider:
+  Adalet Bakanlığı Bedesten (`bedesten.adalet.gov.tr`, `mevzuat.adalet.gov.tr`) ve AYM karar
+  bilgi bankaları. Mevzuat madde metni, karar arama, karar tam metni, AYM kararları.
+  Test: CMK m.250 tam ve güncel geldi; 2026 tarihli Yargıtay kararları erişilebilir.
 - **Soorgla Türk Hukuku MCP:** mevzuat, madde geçmişi, içtihat, Resmî Gazete, süre / harç /
   vekâlet ücreti / işçilik alacağı / infaz hesapları, resmî form örnekleri
 - **Yerel içtihat arşivi** (`ictihat-arsivi` skill'i): Hugging Face
@@ -162,9 +167,20 @@ hukuk dilinin gereklilikleri.
   Sorgu sınırı yok; içtihat taramasında ilk adım. Mevzuat ✓'si için kullanılmaz (anlık görüntü).
 - **Google Drive MCP** (opsiyonel): arşivden örnek dilekçe
 
-**Değerlendirilip alınmayanlar:**
-- `OrionCAF/TurkishLaw` (ince ayarlı küçük dil modeli): muhakeme gücü yetersiz, kaynak göstermez,
-  yürürlük kontrolü yok; çekirdeğe alınmadı. Aşama 8'de "ikinci görüş" olarak kıyaslanabilir.
+**Kaynak değerlendirmesi (24.11.2026, mahkeme güvenliği ölçütüyle):**
+
+| Kaynak | Karar | Gerekçe (test sonucu) |
+|---|---|---|
+| Mütalaa MCP (GitHub, MIT) | ✅ Birincil doğrulama | Yalnızca resmî servislere bağlanır; kod incelendi, dışarı veri gönderen çağrı yok |
+| İçtihat arşivi — karar kümesi | ✅ Bulma aracı | 3 rastgele kararın metni resmî metinle birebir aynı; `doc_id` = Bedesten kimliği |
+| İçtihat arşivi — mevzuat kümesi | ❌ Kaldırıldı | CMK m.250'de bent ve başlık eksik; madde metni atlıyor |
+| CtnkyaABC 106 kanun korpusu | ❌ Bilgi kaynağı değil | PDF kaynaklı: ≈2.600 satırda dipnot karışması, kelime bölünmesi, kesik maddeler |
+| CtnkyaABC benchmark (446 soru) | ✅ Yalnızca eval | Madde bulma isabeti ölçümü |
+| LawChatAI halüsinasyon benchmark'ı (72 olay) | ✅ Yalnızca eval | Zorunlu/kabul edilebilir madde kümeleriyle uydurma atıf ölçümü (CC-BY-NC) |
+| Kullanıcının yüklediği 18.305 soru-cevap | ❌ Kullanılmaz | Kaynak belirsiz; cevapların %3,5'i madde gösteriyor; tekrar ve hatalı genellemeler |
+| `OrionCAF/TurkishLaw` (küçük dil modeli) | ❌ Çekirdeğe alınmadı | Muhakeme gücü yetersiz, kaynak göstermez; Aşama 8'de kıyas için kullanılabilir |
+| `baran-dogan-makaleler` (GitHub) | ❌ Entegre edilmedi | Tek yazarın makaleleri, ticari olmayan kullanım şartı; gerekirse doktrin olarak elle atıf |
+| `NomosOS` (GitHub) | ❌ Kapsam dışı | Büro yönetim yazılımı; hukuki bilgi kaynağı değil |
 
 ## 13. Bileşen planı
 
@@ -186,7 +202,8 @@ Bu yüzden ana kurallar `skills/temel-ilkeler/` skill'ine konur ve her ajan bu s
 frontmatter'daki `skills:` alanıyla yükler.
 
 **Ortak skill'ler (`skills/`):**
-`temel-ilkeler` (anayasa), `belge-okuma` (UDF/PDF/DOCX), `dava-dosyasi` (hafıza), `mevzuat-arastirma`,
+`temel-ilkeler` (anayasa), `kaynak-dogrulama` (resmî kaynak + mahkeme metni atıf denetimi),
+`ictihat-arsivi` (yerel emsal bulma), `belge-okuma` (UDF/PDF/DOCX), `dava-dosyasi` (hafıza), `mevzuat-arastirma`,
 `ictihat-arastirma`, `sure-hesaplama`, `dilekce-yazimi`, `harc-masraf-vekalet`
 
 **Alan skill'leri:** her alanın kendi `references/` klasöründe alt konu rehberi,
