@@ -156,7 +156,15 @@ hukuk dilinin gereklilikleri.
 
 - **Soorgla Türk Hukuku MCP:** mevzuat, madde geçmişi, içtihat, Resmî Gazete, süre / harç /
   vekâlet ücreti / işçilik alacağı / infaz hesapları, resmî form örnekleri
+- **Yerel içtihat arşivi** (`ictihat-arsivi` skill'i): Hugging Face
+  `muhamparlak/turkish-law-bge-m3-embeddings` (CC-BY-4.0). ≈700 bin Yargıtay ve Danıştay kararı
+  (≈1,82 milyon parça, çoğu 2006–2025) ve 8 temel kanun; BGE-M3 vektörleriyle anlamsal arama.
+  Sorgu sınırı yok; içtihat taramasında ilk adım. Mevzuat ✓'si için kullanılmaz (anlık görüntü).
 - **Google Drive MCP** (opsiyonel): arşivden örnek dilekçe
+
+**Değerlendirilip alınmayanlar:**
+- `OrionCAF/TurkishLaw` (ince ayarlı küçük dil modeli): muhakeme gücü yetersiz, kaynak göstermez,
+  yürürlük kontrolü yok; çekirdeğe alınmadı. Aşama 8'de "ikinci görüş" olarak kıyaslanabilir.
 
 ## 13. Bileşen planı
 

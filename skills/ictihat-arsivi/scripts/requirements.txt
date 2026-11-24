@@ -1,0 +1,4 @@
+pyarrow>=15
+numpy>=1.26
+# Yalnızca anlamsal arama (--esas ve --metin modları için gerekmez):
+sentence-transformers>=3.0

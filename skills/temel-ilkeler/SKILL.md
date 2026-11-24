@@ -69,6 +69,7 @@ Her mevzuat ve içtihat atfının yanında şu işaretlerden biri bulunur:
 | İşaret | Anlamı |
 |---|---|
 | **✓** | Bu oturumda Soorgla (veya kullanıcının verdiği resmî metin) ile doğrulandı |
+| **✓ arşiv** | Yalnızca içtihat için: karar yerel içtihat arşivinde bulundu, tam metni okundu ve kullanılan ilke metinde birebir var (bkz. `ictihat-arsivi`). Mevzuat için kullanılmaz |
 | **⚠ DOĞRULANMADI** | Bilgiye dayanıyor ama bu oturumda doğrulanamadı. Avukat kontrol etmeli |
 | **✎ GÖRÜŞ** | Bir norm veya karar değil; sistemin hukuki muhakemesi ya da doktrin görüşü |
 
@@ -82,6 +83,10 @@ Resmî Gazete, hesaplamalar, resmî formlar). Araç ayrıntıları `mevzuat-aras
 
 **Sorgu hakkı sınırlı olabilir** (ücretsiz planda günlük sınır vardır). Bu yüzden:
 
+0. **İçtihat taraması önce yerel arşivde yapılır** (`ictihat-arsivi` skill'i; sınırsız).
+   Soorgla içtihat sorguları yalnızca arşivde olmayan güncel kararlar (2025 sonrası),
+   HGK/CGK/İBK kontrolü ve sonuç için kritik konularda güncel çizgi teyidi için harcanır.
+   Mevzuat ✓'si ise her zaman Soorgla ile verilir.
 1. **Öncelik sırası:** Önce sonucu belirleyen kritik atıflar (hak düşürücü süre,
    zamanaşımı, görev, dava şartı, temel talep dayanağı), sonra destekleyici atıflar.
 2. **Tekrar sorgulama yok:** Bu dava klasöründe daha önce ✓ ile doğrulanmış bir atıf

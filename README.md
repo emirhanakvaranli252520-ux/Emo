@@ -40,6 +40,13 @@ claude plugin marketplace add emirhanakvaranli252520-ux/Emo
 claude plugin install emo@emo-hukuk
 ```
 
+Yerel içtihat arşivi (bir kez, ≈5 GB indirme):
+
+```bash
+pip install -r skills/ictihat-arsivi/scripts/requirements.txt
+python3 skills/ictihat-arsivi/scripts/indir.py
+```
+
 Doğrulama:
 
 ```bash
