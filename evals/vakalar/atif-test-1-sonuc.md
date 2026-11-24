@@ -1,0 +1,20 @@
+# Atıf Denetim Raporu
+Denetlenen metin: evals/vakalar/atif-test-1.md — "## Metin" bölümü (işe iade dilekçe paragrafı) · Tarih: 24.11.2026 · Atıf sayısı: 5 (✓ 2 · ⚠ 2 · ✗ 1 · ? 0)
+
+## Sonuç
+DÜZELTME GEREKLİ — TMK m.6 alıntısı resmî metinle uyuşmuyor, 9. HD 2021/7781 E. – 2021/9952 K. künyesi gerçek bir karara karşılık gelmiyor ve alıntı bulunamadı, 1. HD 2009/859 E. kararının tarihi yanlış.
+
+## Denetim tablosu
+| # | Metindeki atıf | Kaynak (bağlantı) | Durum | Bulgu |
+|---|---|---|---|---|
+| 1 | 4857 sayılı İş Kanunu m.20/1 ve alıntı ("İş sözleşmesi feshedilen işçi, … arabulucuya başvurmak zorundadır.") | https://bedesten.adalet.gov.tr/mevzuat/mevzuatDetay/103054 (mevzuat:103054, çekiliş 24.11.2026) | ✓ | Alıntı, birinci fıkranın ilk cümlesiyle kelimesi kelimesine aynı. Fıkra 12/10/2017 tarihli 7036 s.K. m.11 ile değiştirilmiş. Metinde olay (fesih) tarihi yok; fesih 25.10.2017'den önceyse o tarihteki metin ayrıca kontrol edilmeli. Not: madde 4. fıkrası AYM 19/10/2005, E.2003/66, K.2005/72 ile iptal edilmiş; atfı etkilemiyor. |
+| 2 | 4721 sayılı TMK m.6 ve alıntı ("… taraflardan her biri, iddiasını ispatla yükümlüdür.") | https://bedesten.adalet.gov.tr/mevzuat/mevzuatDetay/103249 (mevzuat:103249, çekiliş 24.11.2026) | ⚠ | Madde var, fakat alıntı yanlış. Resmî metin: "Kanunda aksine bir hüküm bulunmadıkça, taraflardan her biri, hakkını dayandırdığı olguların varlığını ispatla yükümlüdür." Metindeki "iddiasını ispatla" ifadesi kanunda geçmiyor. |
+| 3 | Yargıtay 9. HD, 28.03.2022, E. 2022/2530, K. 2022/4045 — performans düşüklüğüne dayalı fesih | https://mevzuat.adalet.gov.tr/ictihat/759068100 | ✓ | Daire, E., K. ve tarih ("28.03.2022 tarihinde oy birliğiyle kesin olarak karar verildi") karar metninde aynı. Konu: tıbbi tanıtım elemanının performans düşüklüğü gerekçesiyle feshi, işe iade. Sonuç: BAM kararının ONANMASI, yani işe iade kabulü kesinleşti (işçi lehine). Not: karar, AYM bireysel başvuru (2019/1173) sonrası önceki süre ret kararının ortadan kaldırılmasıyla verildi. Metindeki "performans düşüklüğüne dayalı fesih uyuşmazlığına ilişkindir" nitelemesi doğru. |
+| 4 | Yargıtay 9. HD, 14.06.2021, E. 2021/7781, K. 2021/9952 — alıntı: "savunma alınmadan yapılan fesih geçersizdir" | E. 2021/7781 → https://mevzuat.adalet.gov.tr/ictihat/688120500 · K. 2021/9952 → https://mevzuat.adalet.gov.tr/ictihat/664379900 | ✗ | Bu E./K. eşleşmesi resmî kaynakta da korpusta da yok. E. 2021/7781'in kararı K. 2021/11868, 15.09.2021: karar düzeltme talebinin reddi (usul kararı, fesih ilkesi yok). K. 2021/9952 ise E. 2021/5777'ye ait, 07.06.2021 (kayıtta 06.06.2021): gerekçesiz onama kararı, ilke yok. İki kararda da 14.06.2021 tarihi ve alıntılanan cümle geçmiyor. Alıntı ifadesiyle 9. HD'de yapılan aramada 2021 tarihli karar çıkmadı (yalnızca 2012–2015 tarihli 4 karar). Uydurma künye şüphesi. |
+| 5 | Yargıtay 1. HD, 03.03.2006, E. 2009/859, K. 2009/2671 — Hazine'nin taraf olduğu tescil uyuşmazlığı | https://mevzuat.adalet.gov.tr/ictihat/78184200 | ⚠ | Daire, E. ve K. metinde doğru, konu doğru (Hazine'nin el atmanın önlenmesi, yıkım ve tescil davası). **Tarih yanlış:** karar metninde "4.3.2009 tarihinde oybirliğiyle karar verildi" yazıyor. Metindeki 03.03.2006 tarihi resmî kayıttaki hatalı tarihe (2006-03-03) uyuyor; korpus kaydı da 2006-03-04 gösteriyor. Sonuç: el atmanın önlenmesi ve yıkım yönünden hüküm doğru bulundu, tescil yönünden davalı lehine BOZMA (3402 s.K. m.16/C ve 18/1 koşulları oluşmadığı için Hazine'nin tescil isteğinin reddi gerekirdi). |
+
+## Yapılması gerekenler
+1. (#1) Fesih tarihi 25.10.2017'den önceyse m.20/1'in o tarihteki metni kontrol edilsin. Atıf olduğu gibi kalabilir.
+2. (#2) TMK m.6 alıntısını resmî metinle değiştir: "Kanunda aksine bir hüküm bulunmadıkça, taraflardan her biri, hakkını dayandırdığı olguların varlığını ispatla yükümlüdür."
+3. (#4) Atfı ve alıntıyı metinden çıkar. Yerine bir karar konulacaksa yeni künye resmî kaynaktan bulunup ayrıca doğrulanmalı.
+4. (#5) Tarihi "04.03.2009" olarak düzelt. Ayrıca kararın tescil yönünden Hazine aleyhine bozma olduğunu dikkate al; işe iade dilekçesiyle konu ilgisi yok, avukat kararın metinde gerekli olup olmadığını değerlendirsin.
