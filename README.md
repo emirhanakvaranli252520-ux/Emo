@@ -98,6 +98,7 @@ claude plugin validate .
 - [ ] Aşama 5 — Skill'ler
 - [x] Aşama 6 — Ajanlar (5)
 - [x] Aşama 7 — Komutlar (7)
+- [x] İçe aktarma: `/emo:ice-aktar` + `araclar/envanter`
 - [ ] Uçtan uca deneme (`/emo:analiz` örnek vaka)
 - [ ] Alan skill'leri (iş, ceza, aile, tapu, miras — hile katalogları)
 - [ ] Aşama 8 — Eval ve testler
