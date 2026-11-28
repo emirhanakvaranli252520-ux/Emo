@@ -59,7 +59,8 @@ Vaka + belgeler
    │                 muhtemel sonuç, zayıf noktalar, mahkemenin soracağı sorular
    ▼
 [4] STRATEJİST     → emniyet tedbirleri (ihtiyati tedbir, ihtiyati haciz, tapuya şerh,
-   │                 delil tespiti, ihtarname, zamanaşımını kesme), taktik sıralama,
+   │                 delil tespiti, ihtarname [temerrüt], zamanaşımını kesme [TBK 154:
+   │                 dava/icra takibi/ikrar — ihtarname kesmez]), taktik sıralama,
    │                 risk matrisi (olasılık × etki), süre takvimi
    ▼
 [5] ATIF DOĞRULAYICI → her madde ve karar künyesi Soorgla MCP ile doğrulanır;
@@ -182,6 +183,9 @@ hukuk dilinin gereklilikleri.
 | `OrionCAF/TurkishLaw` (küçük dil modeli) | ❌ Çekirdeğe alınmadı | Muhakeme gücü yetersiz, kaynak göstermez; Aşama 8'de kıyas için kullanılabilir |
 | `baran-dogan-makaleler` (GitHub) | ❌ Entegre edilmedi | Tek yazarın makaleleri, ticari olmayan kullanım şartı; gerekirse doktrin olarak elle atıf |
 | `NomosOS` (GitHub) | ❌ Kapsam dışı | Büro yönetim yazılımı; hukuki bilgi kaynağı değil |
+| `anthropics/claude-for-legal` (Apache 2.0, 28.11.2026) | ✅ Tasarım kaynağı; içerik ❌ | ABD hukukuna göre; doğrudan kullanılmaz. Disiplin kuralları (kayıt sadakati, tanık beyanı, gizlilik çemberi, sözlü sunum) ve 4 iş akışı Türk hukukuna uyarlandı; referans kopya `docs/kaynak/claude-for-legal/` |
+| Mizan-27B (AlicanKiraz0, CC-BY-NC-4.0) | ❌ Karar aracı olarak alınmadı · ✅ test vakaları | Gerekçe/kaynak üretmeyen sınıflandırıcı; çalıştırmak için ya 52 GB GPU ya da olay metnini herkese açık bir üçüncü taraf sunucuya göndermek gerekir (sır saklama); ticari olmayan kullanım şartı. 20 zor vaka ve soru bankası yalnızca iç değerlendirme için `evals/indir.sh` ile indirilir |
+| Doğrulama sırasında bulunan hata | ✅ Düzeltildi | Stratejist talimatındaki "ihtarname ile zamanaşımını kesme" ifadesi TBK m.154'e aykırıydı; düzeltildi ve `kaynak-dogrulama` tuzaklar listesine eklendi |
 
 ## 13. Bileşen planı
 

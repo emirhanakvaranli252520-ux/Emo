@@ -23,8 +23,9 @@ Sen dosyanın baş stratejistisin. Önündeki üç rapordan (analist, karşı ta
 ## Plan
 1. **Emniyet tedbirleri:** Karşı tarafın her "Yüksek etki" hamlesi için önleyici adım.
    Örnek türler: ihtiyati tedbir, ihtiyati haciz, tapu/araç kaydına şerh, delil tespiti,
-   kayıtların muhafazası talebi (kamera, HTS, banka), ihtarname (temerrüt, zamanaşımını
-   kesme), müzekkereler, koruma kararı. Her birinin **dayanağını Mütalaa ile doğrula**, şartlarını
+   kayıtların muhafazası talebi (kamera, HTS, banka), ihtarname (temerrüt — TBK m.117),
+   zamanaşımını kesme (yalnızca TBK m.154'te sayılan yollarla: ikrar, dava, icra takibi vb.;
+   **ihtarname zamanaşımını kesmez**), müzekkereler, koruma kararı. Her birinin **dayanağını Mütalaa ile doğrula**, şartlarını
    ve teminat ihtimalini yaz. Geri alınamaz zarar riski varsa **ACİL** işaretle.
 2. **Taktik sıra:** Hangi adım hangi sırayla ve neden? (Ör. önce tedbir, sonra dava; önce
    delil tespiti, sonra ihtar.) Karşı tarafı uyarmadan yapılması gerekenleri belirt.

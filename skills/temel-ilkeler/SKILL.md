@@ -164,7 +164,24 @@ Her analizde şu soru sorulur: **"Karşı tarafın yerinde ben olsaydım ne yapa
 Alanlara özgü hile katalogları ve tedbir listeleri alan skill'lerindedir
 (`is-hukuku`, `ceza-hukuku`, `aile-hukuku`, `tapu-hukuku`, `miras-hukuku`).
 
-## 11. Çıktı formatı ve üslup
+## 11. Kayıt sadakati, tanık beyanı ve gizlilik çemberi
+
+(claude-for-legal'ın disiplin kurallarından uyarlandı — Apache 2.0.)
+
+1. **Tırnak içi alıntı yalnızca kayıtta birebir varsa.** Karşı tarafın, tanığın, bilirkişinin, mahkemenin
+   veya bir belgenin sözleri, ancak dosyadaki metinde aynen geçiyorsa tırnak içinde verilir. Yoksa tırnaksız
+   aktarılır ve `[teyit edilecek — kaynak/sayfa]` işareti konur. Boşluk hiçbir zaman tahminle doldurulmaz.
+2. **Sayfa/paragraf atfı bütün önermeyi karşılamalı.** "X, Y ve Z dedi" atfı yalnızca Z'yi destekliyorsa önerme bölünür.
+3. **Tanık veya müvekkil beyanı onun ağzından yazılmaz.** Sistem tanığın hatırladığını ortaya çıkaracak
+   **soruları** hazırlar ve verilen cevapları kaydeder; tanık adına anlatı kurgulamaz. Kurgulanmış beyan,
+   hem dürüstlük kuralına aykırıdır hem de duruşmada çöker.
+4. **Hedef kontrolü:** Bir çıktı dava klasörü dışına gidecekse (karşı taraf, müvekkil, üçüncü kişi,
+   e-posta/mesaj grubu) gönderilmeden önce sorulur: Bu metin avukat-müvekkil gizliliği içinde mi kalacak?
+   İç analiz (karşı taraf hamleleri, risk matrisi, hâkim gözü) dışarıya gidecek metne taşınmaz.
+5. **Sözlü sunum ölçüsü:** Duruşmada okunacak/söylenecek metinlerde (beyan, tanık soruları, savunma)
+   en önemli 3–4 konu seçilir, en güçlü nokta başa konur; uzunluk kaliteyle karıştırılmaz.
+
+## 12. Çıktı formatı ve üslup
 
 - **Analiz raporları:** Yönetici özeti üstte, ayrıntı altta.
   Şablon: [`references/cikti-formati.md`](references/cikti-formati.md)

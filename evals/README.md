@@ -8,6 +8,8 @@ Veriler lisans gereği repoya konmaz; `indir.sh` ile `evals/veri/` altına indir
 | [LawChatAI/turkish-legal-statutory-hallucination-benchmark](https://huggingface.co/datasets/LawChatAI/turkish-legal-statutory-hallucination-benchmark) | 72 somut olay; her olay için kilit unsurlar, **zorunlu** ve **kabul edilebilir** kanun maddeleri (TBK, TCK, TMK, HMK, TTK, İşK, İİK) | CC-BY-NC-4.0 | Somut olaydan doğru maddeye ulaşma ve **uydurma madde** oranı. Atıf: Erdoğanyılmaz, Naç, Çoskuner (SIU 2026) |
 | [CtnkyaABC/turkish-law-corpus](https://huggingface.co/datasets/CtnkyaABC/turkish-law-corpus) — `benchmark` | 446 soru; her biri tek bir altın maddeye bağlı (süre, şart, usul, yaptırım, istisna…) | CC-BY-4.0 | Madde bulma isabeti. Atıf: TurkLegalRAG (IEEE UBMK 2026) |
 
+| [Mizan Space](https://huggingface.co/spaces/AlicanKiraz0/Mizan-27B-Turkish-Legal-Decision-Model) — `hard_cases_20` + soru bankası | 20 zor Türk hukuku vakası; beklenen hukuk alanı, temel mevzuat, yargı yolu, talep sonucu, süre sorunu ve gerekçe | CC-BY-NC-4.0 | `/emo:analiz` çıktısının nitelendirme/yargı yolu/süre isabeti. Mizan modelinin kendisi kullanılmaz |
+
 ## Ölçülecekler (Aşama 8'de koşturulacak)
 
 1. **Zorunlu madde isabeti:** Sistemin atıf yaptığı maddeler zorunlu maddeleri kapsıyor mu?

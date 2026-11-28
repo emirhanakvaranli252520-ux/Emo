@@ -20,7 +20,11 @@ Tasarım kararları için: [`docs/tasarim.md`](docs/tasarim.md)
 | `/emo:ictihat <soru>` | Lehe/aleyhe içtihat taraması (arşiv + 11M korpus + güncel resmî kaynak) |
 | `/emo:sure <işlem> <tarih>` | Usul süresi hesabı (adli tatil ve resmî tatil kontrolüyle) |
 | `/emo:dilekce <tür> [dava]` | Dilekçe taslağı → zorunlu atıf denetimi → antetli UDF |
+| `/emo:durum [gün]` | Bütün davaların yaklaşan süreleri ve duruşmaları (⛔ geçti · 🔴 ≤7 gün) |
+| `/emo:ice-aktar <klasör>` | Başka bir klasörü/paketi salt okunur inceler, işe yarar evrakı sınıflandırarak alır |
 | `/emo:atif-denetle <dosya>` | Herhangi bir metindeki atıfları resmî kaynaktan denetler (karşı tarafın dilekçesi dahil) |
+
+**Ek skill'ler:** `durusma-hazirlik` · `delil-muhafaza` · `ihtarname` (claude-for-legal'dan uyarlandı)
 
 **Ajanlar:** `analist` (Opus) · `karsi-taraf` (Fable) · `hakim` (Opus) · `stratejist` (Fable) ·
 `atif-dogrulayici` (Sonnet; iki temiz testte 10/10)

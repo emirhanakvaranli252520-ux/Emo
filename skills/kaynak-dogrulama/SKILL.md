@@ -108,6 +108,10 @@ Dilekçe, cevap, istinaf/temyiz dilekçesi veya mütalaa **kesinleşmeden önce*
   Kanunları; 818 / 6098 sayılı Borçlar Kanunları; 765 / 5237 sayılı TCK) birbirine karışır.
 - **Uydurma künye:** Gerçekçi görünen ama var olmayan E./K. numarası. Künye ancak
   `belge_getir` ile açılan metinden yazılır.
+- **"Bilinen" ama yanlış hukuk kuralları:** Ör. "ihtarname zamanaşımını keser" — **yanlış**; TBK m.154
+  zamanaşımını kesen sebepleri sınırlı sayar (ikrar, dava/def'i, hakeme başvuru, icra takibi, iflas masasına
+  başvuru). İhtarname, muaccel borçta temerrüt sonucu doğurur (TBK m.117). Usul ve süre sonuçları
+  doğuran her kural, model "bildiğini" düşünse bile madde metninden doğrulanır.
 - **Hatalı kayıt bilgisi:** Gerçek bir kararın veritabanı kaydı başka bir dosyanın
   numarasını veya bir gün kaymış tarihi taşıyabilir. Künye ve tarih yalnızca metinden alınır.
 - **Daire görev değişikliği:** Bir konuya bakan daire yıllar içinde değişti; eski bir daire
