@@ -49,7 +49,7 @@ Plugin yüklüyse: `/emo:dava-ac`, `/emo:analiz`, `/emo:karsi-taraf`, `/emo:icti
 - `davalar/` **git'e gönderilmez** (müvekkil bilgisi). Bu klasördeki hiçbir şeyi commit'leme veya push'lama.
 
 ## 6. Repo düzeni
-`skills/` · `agents/` · `commands/` · `docs/tasarim.md` (tasarım kararları ve kaynak değerlendirmesi) ·
+`docs/guncellemeler.md` (son değişiklikler) · `skills/` · `agents/` · `commands/` · `docs/tasarim.md` (tasarım kararları ve kaynak değerlendirmesi) ·
 `docs/korpus-dogrulama-raporu.md` · `evals/` (atıf testleri, benchmark indirme) · `araclar/` (Windows kurulum, tez süzme).
 Tasarımı değiştiren her karar önce `docs/tasarim.md`'ye yazılır.
 
